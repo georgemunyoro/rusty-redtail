@@ -1,9 +1,9 @@
 pub fn get_bit(bitboard: u64, bit_index: u8) -> u64 {
-    return (bitboard) & (1 << bit_index);
+    return (bitboard) & (1u64 << bit_index);
 }
 
 pub fn set_bit(bitboard: u64, bit_index: u8) -> u64 {
-    return bitboard | (1 << bit_index);
+    return bitboard | (1u64 << bit_index);
 }
 
 pub fn _print_bitboard(bitboard: u64) {

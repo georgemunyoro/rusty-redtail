@@ -8,6 +8,10 @@ pub struct Position {
     pawn_attacks: [[u64; 64]; 2],
     knight_attacks: [u64; 64],
     king_attacks: [u64; 64],
+
+    bishop_attacks: [u64; 64],
+    rook_attacks: [u64; 64],
+    queen_attacks: [u64; 64],
 }
 
 pub trait Board {
@@ -27,9 +31,13 @@ impl Board for Position {
             pawn_attacks: [[0; 64]; 2],
             knight_attacks: [0; 64],
             king_attacks: [0; 64],
+            bishop_attacks: [0; 64],
+            rook_attacks: [0; 64],
+            queen_attacks: [0; 64],
         };
 
         pos.initialize_leaper_piece_attacks();
+        pos.initialize_slider_piece_attacks();
 
         match fen {
             Some(p) => Position::set_fen(&mut pos, p),
@@ -83,7 +91,7 @@ impl Board for Position {
     }
 
     fn debug(&mut self) {
-        utils::_print_bitboard(self.mask_king_attacks(chess::Square::E4));
+        utils::_print_bitboard(self.generate_bishop_attacks_on_the_fly(chess::Square::D4, 0u64));
     }
 }
 
@@ -110,6 +118,19 @@ impl Position {
 
             // Kings
             self.king_attacks[i] = self.mask_king_attacks(chess::Square::from(i));
+        }
+    }
+
+    fn initialize_slider_piece_attacks(&mut self) {
+        for i in 0..64 {
+            // Bishops
+            self.bishop_attacks[i] = self.mask_bishop_attacks(chess::Square::from(i));
+
+            // Rooks
+            self.rook_attacks[i] = self.mask_rook_attacks(chess::Square::from(i));
+
+            // Queens
+            self.queen_attacks[i] = self.rook_attacks[i] | self.bishop_attacks[i];
         }
     }
 
@@ -204,6 +225,87 @@ impl Position {
         }
         if (bitboard << 1) & !(*chess::constants::FILE_A) != 0 {
             attacks |= bitboard << 1;
+        }
+
+        return attacks;
+    }
+
+    fn mask_bishop_attacks(&self, square: chess::Square) -> u64 {
+        let mut attacks: u64 = 0;
+
+        let square_rank = i8::from(square) / 8;
+        let square_file = i8::from(square) % 8;
+
+        for (rank, file) in ((square_rank + 1)..=6).zip((square_file + 1)..=6) {
+            attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+        }
+
+        for (rank, file) in (1..=(square_rank - 1))
+            .rev()
+            .zip((1..=(square_file - 1)).rev())
+        {
+            attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+        }
+
+        for (rank, file) in ((square_rank + 1)..=6).zip((1..=(square_file - 1)).rev()) {
+            attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+        }
+
+        for (rank, file) in (1..=(square_rank - 1)).rev().zip((square_file + 1)..=6) {
+            attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+        }
+
+        return attacks;
+    }
+
+    fn mask_rook_attacks(&self, square: chess::Square) -> u64 {
+        let mut attacks: u64 = 0;
+
+        let square_rank = i8::from(square) / 8;
+        let square_file = i8::from(square) % 8;
+
+        for rank in (square_rank + 1)..=6 {
+            attacks |= utils::set_bit(attacks, (rank * 8 + square_file).try_into().unwrap());
+        }
+
+        for rank in 1..=(square_rank - 1) {
+            attacks |= utils::set_bit(attacks, (rank * 8 + square_file).try_into().unwrap());
+        }
+
+        for file in (square_file + 1)..=6 {
+            attacks |= utils::set_bit(attacks, (square_rank * 8 + file).try_into().unwrap());
+        }
+
+        for file in 1..=(square_file - 1) {
+            attacks |= utils::set_bit(attacks, (square_rank * 8 + file).try_into().unwrap());
+        }
+
+        return attacks;
+    }
+
+    fn generate_bishop_attacks_on_the_fly(&self, square: chess::Square, blockers: u64) -> u64 {
+        let mut attacks: u64 = 0;
+
+        let square_rank = i8::from(square) / 8;
+        let square_file = i8::from(square) % 8;
+
+        for (rank, file) in ((square_rank + 1)..=7).zip((square_file + 1)..=7) {
+            attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+        }
+
+        for (rank, file) in (0..=(square_rank - 1))
+            .rev()
+            .zip((0..=(square_file - 1)).rev())
+        {
+            attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+        }
+
+        for (rank, file) in ((square_rank + 1)..=7).zip((0..=(square_file - 1)).rev()) {
+            attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+        }
+
+        for (rank, file) in (0..=(square_rank - 1)).rev().zip((square_file + 1)..=7) {
+            attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
         }
 
         return attacks;
