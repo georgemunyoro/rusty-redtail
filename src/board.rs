@@ -91,12 +91,20 @@ impl Board for Position {
 
     fn debug(&mut self) {
         let mut blockers = 0u64;
-        utils::set_bit(&mut blockers, chess::Square::D7 as u8);
-        utils::set_bit(&mut blockers, chess::Square::D3 as u8);
-        utils::set_bit(&mut blockers, chess::Square::B4 as u8);
-        utils::set_bit(&mut blockers, chess::Square::G4 as u8);
 
-        utils::print_bitboard(self.generate_rook_attacks_on_the_fly(chess::Square::D4, blockers));
+        // utils::set_bit(&mut blockers, chess::Square::D7 as u8);
+        // utils::set_bit(&mut blockers, chess::Square::D2 as u8);
+        // utils::set_bit(&mut blockers, chess::Square::D1 as u8);
+        // utils::set_bit(&mut blockers, chess::Square::B4 as u8);
+        // utils::set_bit(&mut blockers, chess::Square::G4 as u8);
+
+        // utils::print_bitboard(self.generate_rook_attacks_on_the_fly(chess::Square::D4, blockers));
+
+        for i in 0..4096 {
+            let attack_mask = self.mask_rook_attacks(chess::Square::A1);
+            let occupancy = self.set_occupancy(i, utils::count_bits(attack_mask), attack_mask);
+            utils::print_bitboard(occupancy)
+        }
     }
 }
 
@@ -371,6 +379,22 @@ impl Position {
         }
 
         return attacks;
+    }
+
+    fn set_occupancy(&self, index: i32, bits_in_mask: u64, attack_mask: u64) -> u64 {
+        let mut occupancy = 0u64;
+        let mut mutable_attack_mask = attack_mask;
+
+        for i in 0..bits_in_mask {
+            let square = utils::get_lsb(mutable_attack_mask);
+            utils::clear_bit(&mut mutable_attack_mask, square);
+
+            if (index & (1 << i)) != 0 {
+                utils::set_bit(&mut occupancy, square);
+            }
+        }
+
+        return occupancy;
     }
 }
 

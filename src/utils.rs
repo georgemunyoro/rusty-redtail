@@ -6,7 +6,7 @@ pub fn set_bit(bitboard: &mut u64, bit_index: u8) {
     *bitboard |= 1u64 << bit_index;
 }
 
-pub fn count_bits(bitboard: u64) -> u8 {
+pub fn count_bits(bitboard: u64) -> u64 {
     let mut count = 0;
     let mut temp_bitboard = bitboard;
     while temp_bitboard != 0 {
@@ -24,6 +24,10 @@ pub fn pop_lsb(bitboard: &mut u64) -> u8 {
     let lsb = get_lsb(*bitboard);
     *bitboard &= *bitboard - 1;
     return lsb;
+}
+
+pub fn clear_bit(bitboard: &mut u64, bit_index: u8) {
+    *bitboard &= !(1u64 << bit_index);
 }
 
 pub fn print_bitboard(bitboard: u64) {
