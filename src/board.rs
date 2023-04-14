@@ -91,7 +91,13 @@ impl Board for Position {
     }
 
     fn debug(&mut self) {
-        utils::_print_bitboard(self.generate_bishop_attacks_on_the_fly(chess::Square::D4, 0u64));
+        let mut blockers = 0u64;
+        blockers = utils::set_bit(blockers, chess::Square::D7 as u8);
+        blockers = utils::set_bit(blockers, chess::Square::D3 as u8);
+        blockers = utils::set_bit(blockers, chess::Square::B4 as u8);
+        blockers = utils::set_bit(blockers, chess::Square::G4 as u8);
+
+        utils::_print_bitboard(self.generate_rook_attacks_on_the_fly(chess::Square::D4, blockers));
     }
 }
 
@@ -291,6 +297,10 @@ impl Position {
 
         for (rank, file) in ((square_rank + 1)..=7).zip((square_file + 1)..=7) {
             attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+
+            if ((1u64 << (rank * 8 + file)) & blockers) != 0 {
+                break;
+            }
         }
 
         for (rank, file) in (0..=(square_rank - 1))
@@ -298,14 +308,67 @@ impl Position {
             .zip((0..=(square_file - 1)).rev())
         {
             attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+
+            if ((1u64 << (rank * 8 + file)) & blockers) != 0 {
+                break;
+            }
         }
 
         for (rank, file) in ((square_rank + 1)..=7).zip((0..=(square_file - 1)).rev()) {
             attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+
+            if ((1u64 << (rank * 8 + file)) & blockers) != 0 {
+                break;
+            }
         }
 
         for (rank, file) in (0..=(square_rank - 1)).rev().zip((square_file + 1)..=7) {
             attacks |= utils::set_bit(attacks, (rank * 8 + file).try_into().unwrap());
+
+            if ((1u64 << (rank * 8 + file)) & blockers) != 0 {
+                break;
+            }
+        }
+
+        return attacks;
+    }
+
+    fn generate_rook_attacks_on_the_fly(&self, square: chess::Square, blockers: u64) -> u64 {
+        let mut attacks: u64 = 0;
+
+        let square_rank = i8::from(square) / 8;
+        let square_file = i8::from(square) % 8;
+
+        for rank in (square_rank + 1)..=7 {
+            attacks |= utils::set_bit(attacks, (rank * 8 + square_file).try_into().unwrap());
+
+            if ((1u64 << (rank * 8 + square_file)) & blockers) != 0 {
+                break;
+            }
+        }
+
+        for rank in (0..=(square_rank - 1)).rev() {
+            attacks |= utils::set_bit(attacks, (rank * 8 + square_file).try_into().unwrap());
+
+            if ((1u64 << (rank * 8 + square_file)) & blockers) != 0 {
+                break;
+            }
+        }
+
+        for file in (square_file + 1)..=7 {
+            attacks |= utils::set_bit(attacks, (square_rank * 8 + file).try_into().unwrap());
+
+            if ((1u64 << (square_rank * 8 + file)) & blockers) != 0 {
+                break;
+            }
+        }
+
+        for file in (0..=(square_file - 1)).rev() {
+            attacks |= utils::set_bit(attacks, (square_rank * 8 + file).try_into().unwrap());
+
+            if ((1u64 << (square_rank * 8 + file)) & blockers) != 0 {
+                break;
+            }
         }
 
         return attacks;
