@@ -97,7 +97,7 @@ impl Board for Position {
         blockers = utils::set_bit(blockers, chess::Square::B4 as u8);
         blockers = utils::set_bit(blockers, chess::Square::G4 as u8);
 
-        utils::_print_bitboard(self.generate_rook_attacks_on_the_fly(chess::Square::D4, blockers));
+        utils::print_bitboard(self.generate_rook_attacks_on_the_fly(chess::Square::D4, blockers));
     }
 }
 
