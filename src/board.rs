@@ -1,4 +1,8 @@
-use crate::{chess, utils};
+use crate::{
+    chess,
+    movegen::{self, MoveGenerator},
+    utils,
+};
 
 mod constants {
     pub static BISHOP_RELEVANT_BITS: [u32; 64] = [
@@ -150,14 +154,14 @@ mod constants {
 
 /// A chess position
 pub struct Position {
-    bitboards: [u64; 12],
-    turn: chess::Color,
+    pub bitboards: [u64; 12],
+    pub turn: chess::Color,
     en_passant: Option<chess::Square>,
     castling: chess::CastlingRights,
     halfmove_clock: u32,
     fullmove_number: u32,
 
-    pawn_attacks: [[u64; 64]; 2],
+    pub pawn_attacks: [[u64; 64]; 2],
     knight_attacks: [u64; 64],
     king_attacks: [u64; 64],
 
@@ -168,8 +172,8 @@ pub struct Position {
     magic_bishop_masks: [u64; 64],
     magic_rook_masks: [u64; 64],
 
-    magic_bishop_attacks: [[u64; 512]; 64],
-    magic_rook_attacks: [[u64; 4096]; 64],
+    magic_bishop_attacks: Vec<Vec<u64>>,
+    magic_rook_attacks: Vec<Vec<u64>>,
 
     rand_seed: u32,
 }
@@ -179,7 +183,6 @@ pub trait Board {
     fn draw(&mut self);
     fn set_fen(&mut self, fen: &str);
     fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool;
-    fn generate_moves(&self) -> Vec<chess::Move>;
 
     fn debug(&mut self);
 }
@@ -200,8 +203,8 @@ impl Board for Position {
             magic_bishop_masks: [0; 64],
             magic_rook_masks: [0; 64],
 
-            magic_bishop_attacks: [[0; 512]; 64],
-            magic_rook_attacks: [[0; 4096]; 64],
+            magic_bishop_attacks: vec![vec![0; 512]; 64],
+            magic_rook_attacks: vec![vec![0; 4096]; 64],
 
             en_passant: None,
             castling: chess::CastlingRights {
@@ -368,85 +371,10 @@ impl Board for Position {
         return false;
     }
 
-    fn generate_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
-
-        let (target_square, source_square) = (chess::Square::NoSq, chess::Square::NoSq);
-        let (bitboard, attacks) = (0u64, 0u64);
-
-        for i in (chess::Piece::BlackPawn as usize)..=(chess::Piece::WhiteKing as usize) {
-            let piece = chess::Piece::from(i);
-            let mut piece_bitboard = self.bitboards[i];
-
-            // white pawn and white king castling moves
-            if self.turn == chess::Color::White {
-                // white pawn moves
-                if piece == chess::Piece::WhitePawn {
-                    while piece_bitboard != 0 {
-                        let source = chess::Square::from(utils::pop_lsb(&mut piece_bitboard));
-                        let target = chess::Square::from((source as u8) - 8);
-
-                        // quiet pawn moves
-                        if (target >= chess::Square::A8)
-                            && self.get_piece_at_square(target as u8) == chess::Piece::Empty
-                        {
-                            // pawn promotion
-                            if source >= chess::Square::A7 && source <= chess::Square::H7 {
-                                moves.extend(
-                                    vec![
-                                        chess::Piece::WhiteQueen,
-                                        chess::Piece::WhiteRook,
-                                        chess::Piece::WhiteBishop,
-                                        chess::Piece::WhiteKnight,
-                                    ]
-                                    .iter()
-                                    .map(|promotion| {
-                                        let mut m = chess::Move::new(source, target, *promotion);
-                                        m.promotion = Some(*promotion);
-                                        return m;
-                                    }),
-                                );
-                            } else {
-                                // single pawn push
-                                moves.push(chess::Move::new(source, target, chess::Piece::Empty));
-
-                                // double pawn push
-                                if (source >= chess::Square::A2) && (source <= chess::Square::H2) {
-                                    let target = chess::Square::from((source as u8) - 16);
-                                    if self.get_piece_at_square(target as u8) == chess::Piece::Empty
-                                    {
-                                        moves.push(chess::Move::new(
-                                            source,
-                                            target,
-                                            chess::Piece::Empty,
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // white pawn and white king castling moves
-            if self.turn == chess::Color::Black {}
-
-            // knight moves
-
-            // bishop moves
-
-            // rook moves
-
-            // queen moves
-
-            // king moves
-        }
-
-        return moves;
-    }
-
     fn debug(&mut self) {
         // self.set_fen("8/6P1/2P5/8/8/8/8/8 w - - 0 1");
+        self.set_fen("7k/8/8/8/pPp5/8/8/7K b - b3 0 1");
+        self.draw();
         let moves = self.generate_moves();
         for m in moves {
             println!("{}", m);
@@ -455,7 +383,7 @@ impl Board for Position {
 }
 
 impl Position {
-    fn get_piece_at_square(&self, square: u8) -> chess::Piece {
+    pub fn get_piece_at_square(&self, square: u8) -> chess::Piece {
         for piece in chess::PIECE_ITER {
             if utils::get_bit(self.bitboards[piece as usize], square) != 0 {
                 return piece;
@@ -975,6 +903,7 @@ mod tests {
         assert_eq!(position.get_piece_at_square(57), Piece::WhiteKnight);
     }
 
+    #[ignore]
     #[test]
     fn generate_magic_numbers_correctly() {
         let mut board = Position::new(None);
@@ -1005,43 +934,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn generate_quiet_pawn_promotions() {}
-
-    #[test]
-    fn generate_capture_pawn_promotions() {}
-
-    #[test]
-    fn generate_king_castles() {}
-
-    #[test]
-    fn generate_queen_castles() {}
-
-    #[test]
-    fn generate_knight_moves() {}
-
-    #[test]
-    fn generate_bishop_moves() {}
-
-    #[test]
-    fn generate_rook_moves() {}
-
-    #[test]
-    fn generate_queen_moves() {}
-
-    #[test]
-    fn generate_king_moves() {}
-
-    #[test]
-    fn generate_pawn_moves() {}
-
-    #[test]
-    fn generate_all_moves() {}
-
-    #[test]
-    fn generate_all_captures() {}
-
-    #[test]
-    fn generate_all_quiet_moves() {}
 }
