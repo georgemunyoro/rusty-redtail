@@ -45,3 +45,21 @@ pub fn print_bitboard(bitboard: u64) {
     }
     println!()
 }
+
+pub fn get_pseudorandom_number_u32(state: &mut u32) -> u32 {
+    let mut number = *state;
+    number ^= number << 13;
+    number ^= number >> 17;
+    number ^= number << 5;
+    *state = number;
+    return number;
+}
+
+pub fn get_pseudorandom_number_u64(state: &mut u32) -> u64 {
+    let n1 = (get_pseudorandom_number_u32(state) as u64) & 0xFFFF;
+    let n2 = (get_pseudorandom_number_u32(state) as u64) & 0xFFFF;
+    let n3 = (get_pseudorandom_number_u32(state) as u64) & 0xFFFF;
+    let n4 = (get_pseudorandom_number_u32(state) as u64) & 0xFFFF;
+
+    return n1 | (n2 << 16) | (n3 << 32) | (n4 << 48);
+}

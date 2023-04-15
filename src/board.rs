@@ -1,5 +1,153 @@
 use crate::{chess, utils};
 
+mod constants {
+    pub static BISHOP_RELEVANT_BITS: [u32; 64] = [
+        6, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 7, 9, 9, 7,
+        5, 5, 5, 5, 7, 9, 9, 7, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5,
+        5, 5, 5, 6,
+    ];
+
+    pub static ROOK_RELEVANT_BITS: [u32; 64] = [
+        12, 11, 11, 11, 11, 11, 11, 12, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10,
+        11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10,
+        10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 12, 11, 11, 11, 11, 11, 11, 12,
+    ];
+
+    pub static BISHOP_MAGIC_NUMBERS: [u64; 64] = [
+        0x40040844404084u64,
+        0x2004208a004208u64,
+        0x10190041080202u64,
+        0x108060845042010u64,
+        0x581104180800210u64,
+        0x2112080446200010u64,
+        0x1080820820060210u64,
+        0x3c0808410220200u64,
+        0x4050404440404u64,
+        0x21001420088u64,
+        0x24d0080801082102u64,
+        0x1020a0a020400u64,
+        0x40308200402u64,
+        0x4011002100800u64,
+        0x401484104104005u64,
+        0x801010402020200u64,
+        0x400210c3880100u64,
+        0x404022024108200u64,
+        0x810018200204102u64,
+        0x4002801a02003u64,
+        0x85040820080400u64,
+        0x810102c808880400u64,
+        0xe900410884800u64,
+        0x8002020480840102u64,
+        0x220200865090201u64,
+        0x2010100a02021202u64,
+        0x152048408022401u64,
+        0x20080002081110u64,
+        0x4001001021004000u64,
+        0x800040400a011002u64,
+        0xe4004081011002u64,
+        0x1c004001012080u64,
+        0x8004200962a00220u64,
+        0x8422100208500202u64,
+        0x2000402200300c08u64,
+        0x8646020080080080u64,
+        0x80020a0200100808u64,
+        0x2010004880111000u64,
+        0x623000a080011400u64,
+        0x42008c0340209202u64,
+        0x209188240001000u64,
+        0x400408a884001800u64,
+        0x110400a6080400u64,
+        0x1840060a44020800u64,
+        0x90080104000041u64,
+        0x201011000808101u64,
+        0x1a2208080504f080u64,
+        0x8012020600211212u64,
+        0x500861011240000u64,
+        0x180806108200800u64,
+        0x4000020e01040044u64,
+        0x300000261044000au64,
+        0x802241102020002u64,
+        0x20906061210001u64,
+        0x5a84841004010310u64,
+        0x4010801011c04u64,
+        0xa010109502200u64,
+        0x4a02012000u64,
+        0x500201010098b028u64,
+        0x8040002811040900u64,
+        0x28000010020204u64,
+        0x6000020202d0240u64,
+        0x8918844842082200u64,
+        0x4010011029020020u64,
+    ];
+
+    pub static ROOK_MAGIC_NUMBERS: [u64; 64] = [
+        0x8a80104000800020u64,
+        0x140002000100040u64,
+        0x2801880a0017001u64,
+        0x100081001000420u64,
+        0x200020010080420u64,
+        0x3001c0002010008u64,
+        0x8480008002000100u64,
+        0x2080088004402900u64,
+        0x800098204000u64,
+        0x2024401000200040u64,
+        0x100802000801000u64,
+        0x120800800801000u64,
+        0x208808088000400u64,
+        0x2802200800400u64,
+        0x2200800100020080u64,
+        0x801000060821100u64,
+        0x80044006422000u64,
+        0x100808020004000u64,
+        0x12108a0010204200u64,
+        0x140848010000802u64,
+        0x481828014002800u64,
+        0x8094004002004100u64,
+        0x4010040010010802u64,
+        0x20008806104u64,
+        0x100400080208000u64,
+        0x2040002120081000u64,
+        0x21200680100081u64,
+        0x20100080080080u64,
+        0x2000a00200410u64,
+        0x20080800400u64,
+        0x80088400100102u64,
+        0x80004600042881u64,
+        0x4040008040800020u64,
+        0x440003000200801u64,
+        0x4200011004500u64,
+        0x188020010100100u64,
+        0x14800401802800u64,
+        0x2080040080800200u64,
+        0x124080204001001u64,
+        0x200046502000484u64,
+        0x480400080088020u64,
+        0x1000422010034000u64,
+        0x30200100110040u64,
+        0x100021010009u64,
+        0x2002080100110004u64,
+        0x202008004008002u64,
+        0x20020004010100u64,
+        0x2048440040820001u64,
+        0x101002200408200u64,
+        0x40802000401080u64,
+        0x4008142004410100u64,
+        0x2060820c0120200u64,
+        0x1001004080100u64,
+        0x20c020080040080u64,
+        0x2935610830022400u64,
+        0x44440041009200u64,
+        0x280001040802101u64,
+        0x2100190040002085u64,
+        0x80c0084100102001u64,
+        0x4024081001000421u64,
+        0x20030a0244872u64,
+        0x12001008414402u64,
+        0x2006104900a0804u64,
+        0x1004081002402u64,
+    ];
+}
+
 /// A chess position
 pub struct Position {
     bitboards: [u64; 12],
@@ -12,6 +160,8 @@ pub struct Position {
     bishop_attacks: [u64; 64],
     rook_attacks: [u64; 64],
     queen_attacks: [u64; 64],
+
+    rand_seed: u32,
 }
 
 pub trait Board {
@@ -34,6 +184,8 @@ impl Board for Position {
             bishop_attacks: [0; 64],
             rook_attacks: [0; 64],
             queen_attacks: [0; 64],
+
+            rand_seed: 1804289383,
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -89,23 +241,7 @@ impl Board for Position {
         self.turn = chess::Color::from(sections[1].chars().next().unwrap());
     }
 
-    fn debug(&mut self) {
-        let mut blockers = 0u64;
-
-        // utils::set_bit(&mut blockers, chess::Square::D7 as u8);
-        // utils::set_bit(&mut blockers, chess::Square::D2 as u8);
-        // utils::set_bit(&mut blockers, chess::Square::D1 as u8);
-        // utils::set_bit(&mut blockers, chess::Square::B4 as u8);
-        // utils::set_bit(&mut blockers, chess::Square::G4 as u8);
-
-        // utils::print_bitboard(self.generate_rook_attacks_on_the_fly(chess::Square::D4, blockers));
-
-        for i in 0..4096 {
-            let attack_mask = self.mask_rook_attacks(chess::Square::A1);
-            let occupancy = self.set_occupancy(i, utils::count_bits(attack_mask), attack_mask);
-            utils::print_bitboard(occupancy)
-        }
-    }
+    fn debug(&mut self) {}
 }
 
 impl Position {
@@ -381,7 +517,7 @@ impl Position {
         return attacks;
     }
 
-    fn set_occupancy(&self, index: i32, bits_in_mask: u64, attack_mask: u64) -> u64 {
+    fn set_occupancy(&self, index: u32, bits_in_mask: u64, attack_mask: u64) -> u64 {
         let mut occupancy = 0u64;
         let mut mutable_attack_mask = attack_mask;
 
@@ -396,13 +532,106 @@ impl Position {
 
         return occupancy;
     }
+
+    fn generate_magic_number(&mut self) -> u64 {
+        return utils::get_pseudorandom_number_u64(&mut self.rand_seed)
+            & utils::get_pseudorandom_number_u64(&mut self.rand_seed)
+            & utils::get_pseudorandom_number_u64(&mut self.rand_seed);
+    }
+
+    fn find_magic_number(
+        &mut self,
+        square: chess::Square,
+        relevant_bits: u32,
+        is_bishop: bool,
+    ) -> u64 {
+        let mut occupancies: [u64; 4096] = [0u64; 4096];
+        let mut attacks: [u64; 4096] = [0u64; 4096];
+        let mut used_attacks: Vec<u64> = vec![0u64; std::mem::size_of::<u64>() * 4096];
+
+        let attack_mask = if is_bishop {
+            self.mask_bishop_attacks(square)
+        } else {
+            self.mask_rook_attacks(square)
+        };
+
+        let occupancy_indices = 1 << relevant_bits;
+
+        for i in 0..occupancy_indices {
+            occupancies[i as usize] = self.set_occupancy(i, relevant_bits as u64, attack_mask);
+            attacks[i as usize] = if is_bishop {
+                self.generate_bishop_attacks_on_the_fly(square, occupancies[i as usize])
+            } else {
+                self.generate_rook_attacks_on_the_fly(square, occupancies[i as usize])
+            };
+        }
+
+        for _ in 0..10000000 {
+            let magic_number = self.generate_magic_number();
+            if utils::count_bits((attack_mask.wrapping_mul(magic_number)) & 0xFF00000000000000) < 6
+            {
+                continue;
+            }
+
+            used_attacks = vec![0u64; std::mem::size_of::<u64>() * 4096];
+
+            let (mut index, mut fail): (u32, bool) = (0, false);
+
+            while index < occupancy_indices && !fail {
+                let magic_index = ((occupancies[index as usize].wrapping_mul(magic_number))
+                    >> (64 - relevant_bits)) as usize;
+
+                if used_attacks[magic_index] == 0 {
+                    used_attacks[magic_index] = attacks[index as usize];
+                } else if used_attacks[magic_index] != attacks[index as usize] {
+                    fail = true;
+                }
+
+                index += 1;
+            }
+
+            if !fail {
+                return magic_number;
+            }
+        }
+
+        return 0u64;
+    }
+
+    fn initialize_magic_numbers(&mut self) {
+        println!("--------------------------------");
+        println!("Generating magic numbers...");
+        println!("--------------------------------\n");
+
+        for square in chess::SQUARE_ITER {
+            let magic_number = self.find_magic_number(
+                square,
+                constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
+                false,
+            );
+
+            println!("Bishop {} 0x{:016x}u64", square, magic_number);
+        }
+
+        println!("--------------------------------");
+
+        for square in chess::SQUARE_ITER {
+            let magic_number = self.find_magic_number(
+                square,
+                constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
+                true,
+            );
+
+            println!("Rook {} 0x{:016x}u64", square, magic_number);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        board::{Board, Position},
-        chess::Piece,
+        board::{constants, Board, Position},
+        chess::{self, Piece},
     };
 
     #[test]
@@ -436,5 +665,36 @@ mod tests {
         assert_eq!(position.get_piece_at_square(55), Piece::WhitePawn);
         assert_eq!(position.get_piece_at_square(56), Piece::WhiteRook);
         assert_eq!(position.get_piece_at_square(57), Piece::WhiteKnight);
+    }
+
+    #[test]
+    fn generate_magic_numbers_correctly() {
+        let mut board = Position::new(None);
+
+        for square in chess::SQUARE_ITER {
+            let magic_number = board.find_magic_number(
+                square,
+                constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
+                false,
+            );
+
+            assert_eq!(
+                magic_number,
+                constants::ROOK_MAGIC_NUMBERS[usize::from(u8::from(square))]
+            );
+        }
+
+        for square in chess::SQUARE_ITER {
+            let magic_number = board.find_magic_number(
+                square,
+                constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
+                true,
+            );
+
+            assert_eq!(
+                magic_number,
+                constants::BISHOP_MAGIC_NUMBERS[usize::from(u8::from(square))]
+            );
+        }
     }
 }
