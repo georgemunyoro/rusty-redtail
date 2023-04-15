@@ -27,7 +27,7 @@ pub mod constants {
 }
 
 /// Represents a square on the chess board
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd)]
 pub enum Square {
     A8,
     B8,
@@ -764,29 +764,6 @@ impl From<char> for Color {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::chess::{get_piece_char, Piece};
-
-    #[test]
-    fn get_piece_char_gets_the_correct_character() {
-        assert_eq!(get_piece_char(Piece::BlackPawn), 'p');
-        assert_eq!(get_piece_char(Piece::BlackKnight), 'n');
-        assert_eq!(get_piece_char(Piece::BlackBishop), 'b');
-        assert_eq!(get_piece_char(Piece::BlackRook), 'r');
-        assert_eq!(get_piece_char(Piece::BlackQueen), 'q');
-        assert_eq!(get_piece_char(Piece::BlackKing), 'k');
-        assert_eq!(get_piece_char(Piece::WhitePawn), 'P');
-        assert_eq!(get_piece_char(Piece::WhiteKnight), 'N');
-        assert_eq!(get_piece_char(Piece::WhiteBishop), 'B');
-        assert_eq!(get_piece_char(Piece::WhiteRook), 'R');
-        assert_eq!(get_piece_char(Piece::WhiteQueen), 'Q');
-        assert_eq!(get_piece_char(Piece::WhiteKing), 'K');
-        assert_eq!(get_piece_char(Piece::Empty), '.');
-    }
-}
-
 pub enum Castle {
     KingSide,
     QueenSide,
@@ -800,6 +777,20 @@ pub struct Move {
     pub castle: Option<Castle>,
     pub promotion: Option<Piece>,
     pub en_passant: bool,
+}
+
+impl Move {
+    pub fn new(from: Square, to: Square, piece: Piece) -> Self {
+        Move {
+            from,
+            to,
+            piece,
+            capture: None,
+            castle: None,
+            promotion: None,
+            en_passant: false,
+        }
+    }
 }
 
 impl Display for Move {
@@ -861,5 +852,27 @@ impl From<&str> for CastlingRights {
             black_king_side,
             black_queen_side,
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::chess::{get_piece_char, Piece};
+
+    #[test]
+    fn get_piece_char_gets_the_correct_character() {
+        assert_eq!(get_piece_char(Piece::BlackPawn), 'p');
+        assert_eq!(get_piece_char(Piece::BlackKnight), 'n');
+        assert_eq!(get_piece_char(Piece::BlackBishop), 'b');
+        assert_eq!(get_piece_char(Piece::BlackRook), 'r');
+        assert_eq!(get_piece_char(Piece::BlackQueen), 'q');
+        assert_eq!(get_piece_char(Piece::BlackKing), 'k');
+        assert_eq!(get_piece_char(Piece::WhitePawn), 'P');
+        assert_eq!(get_piece_char(Piece::WhiteKnight), 'N');
+        assert_eq!(get_piece_char(Piece::WhiteBishop), 'B');
+        assert_eq!(get_piece_char(Piece::WhiteRook), 'R');
+        assert_eq!(get_piece_char(Piece::WhiteQueen), 'Q');
+        assert_eq!(get_piece_char(Piece::WhiteKing), 'K');
+        assert_eq!(get_piece_char(Piece::Empty), '.');
     }
 }
