@@ -179,6 +179,7 @@ pub trait Board {
     fn draw(&mut self);
     fn set_fen(&mut self, fen: &str);
     fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool;
+    fn generate_moves(&self) -> Vec<chess::Move>;
 
     fn debug(&mut self);
 }
@@ -367,7 +368,26 @@ impl Board for Position {
         return false;
     }
 
-    fn debug(&mut self) {}
+    fn generate_moves(&self) -> Vec<chess::Move> {
+        let dummy_move = chess::Move {
+            from: chess::Square::A1,
+            to: chess::Square::A1,
+            promotion: None,
+            capture: None,
+            castle: None,
+            en_passant: false,
+            piece: chess::Piece::Empty,
+        };
+        let dummy_move_list = vec![dummy_move];
+        return dummy_move_list;
+    }
+
+    fn debug(&mut self) {
+        let moves = self.generate_moves();
+        for m in moves {
+            println!("{}", m);
+        }
+    }
 }
 
 impl Position {
