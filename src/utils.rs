@@ -38,8 +38,8 @@ pub fn print_bitboard(bitboard: u64) {
         print!(
             "{} ",
             match get_bit(bitboard, i) {
-                0 => 0,
-                _ => 1,
+                0 => "•",
+                _ => "\x1b[31m*\x1b[0m",
             }
         );
     }

@@ -451,6 +451,78 @@ impl From<Square> for u8 {
     }
 }
 
+impl From<&str> for Square {
+    fn from(square: &str) -> Square {
+        match square {
+            "a8" => Square::A8,
+            "b8" => Square::B8,
+            "c8" => Square::C8,
+            "d8" => Square::D8,
+            "e8" => Square::E8,
+            "f8" => Square::F8,
+            "g8" => Square::G8,
+            "h8" => Square::H8,
+            "a7" => Square::A7,
+            "b7" => Square::B7,
+            "c7" => Square::C7,
+            "d7" => Square::D7,
+            "e7" => Square::E7,
+            "f7" => Square::F7,
+            "g7" => Square::G7,
+            "h7" => Square::H7,
+            "a6" => Square::A6,
+            "b6" => Square::B6,
+            "c6" => Square::C6,
+            "d6" => Square::D6,
+            "e6" => Square::E6,
+            "f6" => Square::F6,
+            "g6" => Square::G6,
+            "h6" => Square::H6,
+            "a5" => Square::A5,
+            "b5" => Square::B5,
+            "c5" => Square::C5,
+            "d5" => Square::D5,
+            "e5" => Square::E5,
+            "f5" => Square::F5,
+            "g5" => Square::G5,
+            "h5" => Square::H5,
+            "a4" => Square::A4,
+            "b4" => Square::B4,
+            "c4" => Square::C4,
+            "d4" => Square::D4,
+            "e4" => Square::E4,
+            "f4" => Square::F4,
+            "g4" => Square::G4,
+            "h4" => Square::H4,
+            "a3" => Square::A3,
+            "b3" => Square::B3,
+            "c3" => Square::C3,
+            "d3" => Square::D3,
+            "e3" => Square::E3,
+            "f3" => Square::F3,
+            "g3" => Square::G3,
+            "h3" => Square::H3,
+            "a2" => Square::A2,
+            "b2" => Square::B2,
+            "c2" => Square::C2,
+            "d2" => Square::D2,
+            "e2" => Square::E2,
+            "f2" => Square::F2,
+            "g2" => Square::G2,
+            "h2" => Square::H2,
+            "a1" => Square::A1,
+            "b1" => Square::B1,
+            "c1" => Square::C1,
+            "d1" => Square::D1,
+            "e1" => Square::E1,
+            "f1" => Square::F1,
+            "g1" => Square::G1,
+            "h1" => Square::H1,
+            _ => Square::NoSq,
+        }
+    }
+}
+
 impl From<Square> for i8 {
     fn from(square: Square) -> i8 {
         match square {
@@ -712,5 +784,54 @@ mod tests {
         assert_eq!(get_piece_char(Piece::WhiteQueen), 'Q');
         assert_eq!(get_piece_char(Piece::WhiteKing), 'K');
         assert_eq!(get_piece_char(Piece::Empty), '.');
+    }
+}
+
+pub enum Castle {
+    KingSide,
+    QueenSide,
+}
+
+pub struct Move {
+    pub from: Square,
+    pub to: Square,
+    pub piece: Piece,
+    pub capture: Piece,
+    pub castle: Option<Castle>,
+    pub promotion: Option<Piece>,
+    pub en_passant: bool,
+}
+
+pub struct CastlingRights {
+    pub white_king_side: bool,
+    pub white_queen_side: bool,
+    pub black_king_side: bool,
+    pub black_queen_side: bool,
+}
+
+impl From<&str> for CastlingRights {
+    fn from(v: &str) -> Self {
+        let mut white_king_side = false;
+        let mut white_queen_side = false;
+        let mut black_king_side = false;
+        let mut black_queen_side = false;
+
+        for c in v.chars() {
+            match c {
+                'K' => white_king_side = true,
+                'Q' => white_queen_side = true,
+                'k' => black_king_side = true,
+                'q' => black_queen_side = true,
+                '-' => break,
+                _ => panic!("Invalid castling rights"),
+            }
+        }
+
+        return CastlingRights {
+            white_king_side,
+            white_queen_side,
+            black_king_side,
+            black_queen_side,
+        };
     }
 }
