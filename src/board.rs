@@ -1,7 +1,9 @@
+use std::time::Instant;
+
 use crate::{
     chess,
     movegen::{self, MoveGenerator},
-    utils,
+    utils::{self, clear_bit},
 };
 
 mod constants {
@@ -156,26 +158,40 @@ mod constants {
 pub struct Position {
     pub bitboards: [u64; 12],
     pub turn: chess::Color,
-    en_passant: Option<chess::Square>,
-    castling: chess::CastlingRights,
-    halfmove_clock: u32,
-    fullmove_number: u32,
+    pub enpassant: Option<chess::Square>,
+    pub castling: chess::CastlingRights,
+
+    pub halfmove_clock: u32,
+    pub fullmove_number: u32,
 
     pub pawn_attacks: [[u64; 64]; 2],
-    knight_attacks: [u64; 64],
-    king_attacks: [u64; 64],
+    pub knight_attacks: [u64; 64],
+    pub king_attacks: [u64; 64],
 
-    bishop_attacks: [u64; 64],
-    rook_attacks: [u64; 64],
-    queen_attacks: [u64; 64],
+    pub bishop_attacks: [u64; 64],
+    pub rook_attacks: [u64; 64],
+    pub queen_attacks: [u64; 64],
 
-    magic_bishop_masks: [u64; 64],
-    magic_rook_masks: [u64; 64],
+    pub magic_bishop_masks: [u64; 64],
+    pub magic_rook_masks: [u64; 64],
 
-    magic_bishop_attacks: Vec<Vec<u64>>,
-    magic_rook_attacks: Vec<Vec<u64>>,
+    pub magic_bishop_attacks: Vec<Vec<u64>>,
+    pub magic_rook_attacks: Vec<Vec<u64>>,
 
-    rand_seed: u32,
+    pub history: Vec<chess::Move>,
+    pub position_stack: Vec<HistoryEntry>,
+
+    pub rand_seed: u32, //
+}
+
+pub struct HistoryEntry {
+    pub bitboards: [u64; 12],
+    pub turn: chess::Color,
+    pub enpassant: Option<chess::Square>,
+    pub castling: chess::CastlingRights,
+
+    pub halfmove_clock: u32,
+    pub fullmove_number: u32,
 }
 
 pub trait Board {
@@ -183,6 +199,13 @@ pub trait Board {
     fn draw(&mut self);
     fn set_fen(&mut self, fen: &str);
     fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool;
+
+    fn is_in_check(&self) -> bool;
+
+    fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool;
+    fn unmake_move(&mut self);
+
+    fn as_fen(&self) -> String;
 
     fn debug(&mut self);
 }
@@ -206,7 +229,7 @@ impl Board for Position {
             magic_bishop_attacks: vec![vec![0; 512]; 64],
             magic_rook_attacks: vec![vec![0; 4096]; 64],
 
-            en_passant: None,
+            enpassant: None,
             castling: chess::CastlingRights {
                 white_king_side: false,
                 white_queen_side: false,
@@ -217,6 +240,10 @@ impl Board for Position {
             fullmove_number: 1,
 
             rand_seed: 1804289383,
+
+            history: Vec::new(),
+
+            position_stack: Vec::new(),
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -232,6 +259,94 @@ impl Board for Position {
         return pos;
     }
 
+    /// Returns true if the current side's king is in check
+    fn is_in_check(&self) -> bool {
+        let king_square = if self.turn == chess::Color::White {
+            utils::get_lsb(self.bitboards[chess::Piece::WhiteKing as usize])
+        } else {
+            utils::get_lsb(self.bitboards[chess::Piece::BlackKing as usize])
+        };
+        self.is_square_attacked(chess::Square::from(king_square), !self.turn)
+    }
+
+    /// Returns an FEN string representing the current position
+    fn as_fen(&self) -> String {
+        let mut fen = String::new();
+
+        // Piece placement
+        let mut empty = 0;
+        for i in 0..64 {
+            if i % 8 == 0 && i != 0 {
+                if empty != 0 {
+                    fen.push_str(&empty.to_string());
+                    empty = 0;
+                }
+                fen.push('/');
+            }
+
+            let piece = self.get_piece_at_square(i);
+            if piece == chess::Piece::Empty {
+                empty += 1;
+            } else {
+                if empty != 0 {
+                    fen.push_str(&empty.to_string());
+                    empty = 0;
+                }
+                fen.push_str(&piece.to_string());
+            }
+        }
+        if empty != 0 {
+            fen.push_str(&empty.to_string());
+        }
+
+        // Active color
+        fen.push(' ');
+        fen.push_str(match self.turn {
+            chess::Color::White => "w",
+            chess::Color::Black => "b",
+            _ => panic!("Invalid color"),
+        });
+
+        // Castling availability
+        fen.push(' ');
+        if self.castling.white_king_side {
+            fen.push('K');
+        }
+        if self.castling.white_queen_side {
+            fen.push('Q');
+        }
+        if self.castling.black_king_side {
+            fen.push('k');
+        }
+        if self.castling.black_queen_side {
+            fen.push('q');
+        }
+        if !self.castling.white_king_side
+            && !self.castling.white_queen_side
+            && !self.castling.black_king_side
+            && !self.castling.black_queen_side
+        {
+            fen.push('-');
+        }
+
+        // En passant target square
+        fen.push(' ');
+        match self.enpassant {
+            Some(s) => fen.push_str(&s.to_string().to_lowercase()),
+            None => fen.push('-'),
+        }
+
+        // Halfmove clock
+        fen.push(' ');
+        fen.push_str(&self.halfmove_clock.to_string());
+
+        // Fullmove number
+        fen.push(' ');
+        fen.push_str(&self.fullmove_number.to_string());
+
+        return fen;
+    }
+
     /// Draws the board to the console
     fn draw(&mut self) {
         for i in 0..64 {
@@ -240,7 +355,8 @@ impl Board for Position {
             }
             print!("{} ", self.get_piece_at_square(i));
         }
-        println!("\n\n{} to move\n", self.turn);
+        // println!("\n\n{} to move\n", self.turn);
+        println!("\n\n{}\n", self.as_fen());
     }
 
     /// Sets the board to the given FEN string
@@ -277,7 +393,7 @@ impl Board for Position {
         self.castling = chess::CastlingRights::from(sections[2]);
 
         // Set the en passant square
-        self.en_passant = match sections[3] {
+        self.enpassant = match sections[3] {
             "-" => None,
             _ => Some(chess::Square::from(sections[3])),
         };
@@ -325,7 +441,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackBishop
         };
-        if (self.get_bishop_magic_attacks(square, self.get_occupancy(color))
+        if (self.get_bishop_magic_attacks(square, self.get_occupancy(chess::Color::Both))
             & self.bitboards[bishop_piece as usize])
             != 0
         {
@@ -338,20 +454,20 @@ impl Board for Position {
         } else {
             chess::Piece::BlackRook
         };
-        if (self.get_rook_magic_attacks(square, self.get_occupancy(color))
+        if (self.get_rook_magic_attacks(square, self.get_occupancy(chess::Color::Both))
             & self.bitboards[rook_piece as usize])
             != 0
         {
             return true;
         }
 
-        // attacked by bishops
+        // attacked by queens
         let queen_piece = if color == chess::Color::White {
             chess::Piece::WhiteQueen
         } else {
             chess::Piece::BlackQueen
         };
-        if (self.get_queen_magic_attacks(square, self.get_occupancy(color))
+        if (self.get_queen_magic_attacks(square, self.get_occupancy(chess::Color::Both))
             & self.bitboards[queen_piece as usize])
             != 0
         {
@@ -371,18 +487,240 @@ impl Board for Position {
         return false;
     }
 
-    fn debug(&mut self) {
-        // self.set_fen("8/6P1/2P5/8/8/8/8/8 w - - 0 1");
-        self.set_fen("7k/8/8/8/pPp5/8/8/7K b - b3 0 1");
-        self.draw();
-        let moves = self.generate_moves();
-        for m in moves {
-            println!("{}", m);
+    fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool {
+        if !only_captures {
+            // add the move to the history
+            let history_entry = self.to_history_entry();
+            self.position_stack.push(history_entry);
+
+            // set the moving piece
+            utils::set_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
+            // remove the moving piece
+            utils::clear_bit(&mut self.bitboards[m.piece as usize], m.from as u8);
+
+            // handle captures
+            match m.capture {
+                None => {}
+                Some(captured_piece) => {
+                    // remove the captured piece
+                    utils::clear_bit(&mut self.bitboards[captured_piece as usize], m.to as u8);
+                }
+            }
+
+            // handle promotions
+            match m.promotion {
+                None => {}
+                Some(promotion_piece) => {
+                    // remove the pawn
+                    utils::clear_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
+                    // add the promoted piece
+                    utils::set_bit(&mut self.bitboards[promotion_piece as usize], m.to as u8);
+                }
+            }
+
+            // handle en passant
+            if m.en_passant {
+                let en_captured_square = if self.turn == chess::Color::White {
+                    (m.to as u8) + 8
+                } else {
+                    (m.to as u8) - 8
+                };
+
+                let en_captured_piece = self.get_piece_at_square(en_captured_square);
+
+                if en_captured_piece != chess::Piece::Empty {
+                    // remove the captured pawn
+                    utils::clear_bit(
+                        &mut self.bitboards[en_captured_piece as usize],
+                        en_captured_square,
+                    );
+                }
+            }
+
+            self.enpassant = None;
+
+            // handle setting the en passant square during double pawn pushes
+            if m.piece == chess::Piece::WhitePawn || m.piece == chess::Piece::BlackPawn {
+                if m.from as i8 - m.to as i8 == 16 {
+                    self.enpassant = Some(chess::Square::from(m.from as u8 - 8));
+                } else if m.from as i8 - m.to as i8 == -16 {
+                    self.enpassant = Some(chess::Square::from(m.from as u8 + 8));
+                }
+            }
+
+            // handle castling
+            if m.castle {
+                match m.to {
+                    chess::Square::C1 => {
+                        // white queen side
+                        utils::clear_bit(
+                            &mut self.bitboards[chess::Piece::WhiteRook as usize],
+                            chess::Square::A1 as u8,
+                        );
+                        utils::set_bit(
+                            &mut self.bitboards[chess::Piece::WhiteRook as usize],
+                            chess::Square::D1 as u8,
+                        );
+                    }
+                    chess::Square::G1 => {
+                        // white king side
+                        utils::clear_bit(
+                            &mut self.bitboards[chess::Piece::WhiteRook as usize],
+                            chess::Square::H1 as u8,
+                        );
+                        utils::set_bit(
+                            &mut self.bitboards[chess::Piece::WhiteRook as usize],
+                            chess::Square::F1 as u8,
+                        );
+                    }
+                    chess::Square::C8 => {
+                        // black queen side
+                        utils::clear_bit(
+                            &mut self.bitboards[chess::Piece::BlackRook as usize],
+                            chess::Square::A8 as u8,
+                        );
+                        utils::set_bit(
+                            &mut self.bitboards[chess::Piece::BlackRook as usize],
+                            chess::Square::D8 as u8,
+                        );
+                    }
+                    chess::Square::G8 => {
+                        // black king side
+                        utils::clear_bit(
+                            &mut self.bitboards[chess::Piece::BlackRook as usize],
+                            chess::Square::H8 as u8,
+                        );
+                        utils::set_bit(
+                            &mut self.bitboards[chess::Piece::BlackRook as usize],
+                            chess::Square::F8 as u8,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
+            if m.piece == chess::Piece::WhiteKing {
+                self.castling.white_king_side = false;
+                self.castling.white_queen_side = false;
+            } else if m.piece == chess::Piece::BlackKing {
+                self.castling.black_king_side = false;
+                self.castling.black_queen_side = false;
+            }
+
+            // first move of a rook disables castling
+            if m.piece == chess::Piece::WhiteRook
+                && m.from == chess::Square::A1
+                && self.castling.white_queen_side
+            {
+                self.castling.white_queen_side = false;
+            }
+
+            if m.piece == chess::Piece::WhiteRook
+                && m.from == chess::Square::H1
+                && self.castling.white_king_side
+            {
+                self.castling.white_king_side = false;
+            }
+
+            if m.piece == chess::Piece::BlackRook
+                && m.from == chess::Square::A8
+                && self.castling.black_queen_side
+            {
+                self.castling.black_queen_side = false;
+            }
+
+            if m.piece == chess::Piece::BlackRook
+                && m.from == chess::Square::H8
+                && self.castling.black_king_side
+            {
+                self.castling.black_king_side = false;
+            }
+
+            // ensure the king is not in check
+            if self.is_in_check() {
+                self.unmake_move();
+                return false;
+            }
+
+            self.turn = !self.turn;
+
+            return true;
+        } else {
+            match Some(m) {
+                None => return false,
+                _ => return self.make_move(m, false),
+            }
         }
+    }
+
+    fn unmake_move(&mut self) {
+        // pop the history entry and apply it
+        let history_entry = self.position_stack.pop().unwrap();
+        self.apply_history_entry(history_entry);
+    }
+
+    fn debug(&mut self) {
+        for i in 0..=7 {
+            self.set_fen(chess::constants::STARTING_FEN);
+            let start = Instant::now();
+            let nodes = self.perft(i);
+            let duration = start.elapsed();
+            let nodes_per_second = nodes as f64 / duration.as_secs_f64();
+            println!(
+                "perft {} - {} node(s) in {:?} - ({:.0}nps)",
+                i, nodes, duration, nodes_per_second
+            );
+        }
+
+        // self.draw();
+
+        // self.set_fen(chess::constants::STARTING_FEN);
+        // self.set_fen("r3k2r/pPppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+        // self.set_fen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+        // let moves = self.generate_moves();
+        // println!("{} moves", moves.len());
+        // for m in moves {
+        //     println!("---------------------");
+        //     println!("{}", m);
+        //     self.draw();
+        //     self.make_move(m, false);
+        //     println!("{:?}", self.castling);
+        //     match self.enpassant {
+        //         Some(s) => println!("enpas square: {}", s),
+        //         None => println!("enpas square: None"),
+        //     }
+        //     self.draw();
+        //     self.unmake_move();
+        //     self.draw();
+        //     println!("---------------------");
+        //     // wait for input
+        //     let mut input = String::new();
+        //     std::io::stdin().read_line(&mut input).unwrap();
+        // }
     }
 }
 
 impl Position {
+    pub fn to_history_entry(&self) -> HistoryEntry {
+        return HistoryEntry {
+            bitboards: self.bitboards,
+            turn: self.turn,
+            enpassant: self.enpassant,
+            castling: self.castling,
+            halfmove_clock: self.halfmove_clock,
+            fullmove_number: self.fullmove_number,
+        };
+    }
+
+    pub fn apply_history_entry(&mut self, entry: HistoryEntry) {
+        self.bitboards = entry.bitboards;
+        self.turn = entry.turn;
+        self.enpassant = entry.enpassant;
+        self.castling = entry.castling;
+        self.halfmove_clock = entry.halfmove_clock;
+        self.fullmove_number = entry.fullmove_number;
+    }
+
     pub fn get_piece_at_square(&self, square: u8) -> chess::Piece {
         for piece in chess::PIECE_ITER {
             if utils::get_bit(self.bitboards[piece as usize], square) != 0 {
@@ -815,7 +1153,7 @@ impl Position {
         }
     }
 
-    fn get_bishop_magic_attacks(&self, square: chess::Square, occupancy: u64) -> u64 {
+    pub fn get_bishop_magic_attacks(&self, square: chess::Square, occupancy: u64) -> u64 {
         let mut mutable_occupancy = occupancy;
         mutable_occupancy &= self.magic_bishop_masks[usize::from(u8::from(square))];
         mutable_occupancy = mutable_occupancy
@@ -825,7 +1163,7 @@ impl Position {
             [mutable_occupancy as usize];
     }
 
-    fn get_rook_magic_attacks(&self, square: chess::Square, occupancy: u64) -> u64 {
+    pub fn get_rook_magic_attacks(&self, square: chess::Square, occupancy: u64) -> u64 {
         let mut mutable_occupancy = occupancy;
         mutable_occupancy &= self.magic_rook_masks[usize::from(u8::from(square))];
         mutable_occupancy = mutable_occupancy
@@ -834,12 +1172,12 @@ impl Position {
         return self.magic_rook_attacks[usize::from(u8::from(square))][mutable_occupancy as usize];
     }
 
-    fn get_queen_magic_attacks(&self, square: chess::Square, occupancy: u64) -> u64 {
+    pub fn get_queen_magic_attacks(&self, square: chess::Square, occupancy: u64) -> u64 {
         return self.get_bishop_magic_attacks(square, occupancy)
             | self.get_rook_magic_attacks(square, occupancy);
     }
 
-    fn get_occupancy(&self, color: chess::Color) -> u64 {
+    pub fn get_occupancy(&self, color: chess::Color) -> u64 {
         let mut white_occupancy = 0u64;
         let mut black_occupancy = 0u64;
 

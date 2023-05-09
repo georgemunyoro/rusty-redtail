@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Not};
 
 pub mod constants {
     pub static STARTING_FEN: &'static str =
@@ -724,11 +724,23 @@ pub static PIECE_ITER: [Piece; 12] = [
 ];
 
 /// Represents the color of a piece
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Color {
     White,
     Black,
     Both,
+}
+
+impl Not for Color {
+    type Output = Color;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+            Color::Both => Color::Both,
+        }
+    }
 }
 
 impl Display for Color {
@@ -764,17 +776,22 @@ impl From<char> for Color {
         }
     }
 }
-pub enum Castle {
-    KingSide,
-    QueenSide,
+
+#[derive(Clone, Copy, Debug)]
+pub struct CastlingRights {
+    pub white_king_side: bool,
+    pub white_queen_side: bool,
+    pub black_king_side: bool,
+    pub black_queen_side: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct Move {
     pub from: Square,
     pub to: Square,
     pub piece: Piece,
     pub capture: Option<Piece>,
-    pub castle: Option<Castle>,
+    pub castle: bool,
     pub promotion: Option<Piece>,
     pub en_passant: bool,
 }
@@ -786,7 +803,7 @@ impl Move {
             to,
             piece,
             capture: None,
-            castle: None,
+            castle: false,
             promotion: None,
             en_passant: false,
         }
@@ -802,30 +819,62 @@ impl Display for Move {
             self.from.to_string().to_lowercase(),
             self.to.to_string().to_lowercase(),
             match self.promotion {
-                Some(p) => get_piece_char(p),
-                None => ' ',
+                Some(p) => get_piece_char(p).to_lowercase().to_string(),
+                None => ' '.to_string(),
             },
             match self.capture {
                 Some(p) => get_piece_char(p),
                 None => ' ',
             },
             match &self.castle {
-                Some(c) => match c {
-                    Castle::KingSide => 'k',
-                    Castle::QueenSide => 'q',
-                },
-                None => ' ',
+                // Some(c) => format!(
+                //     "{}{}{}{} ",
+                //     match c.white_king_side {
+                //         true => "K",
+                //         false => "",
+                //     },
+                //     match c.white_queen_side {
+                //         true => "Q",
+                //         false => "",
+                //     },
+                //     match c.black_king_side {
+                //         true => "k",
+                //         false => "",
+                //     },
+                //     match c.black_king_side {
+                //         true => "q",
+                //         false => "",
+                //     },
+                // ),
+                false => " ",
+                true => "!",
             },
             if self.en_passant { 'e' } else { ' ' }
         )
     }
 }
 
-pub struct CastlingRights {
-    pub white_king_side: bool,
-    pub white_queen_side: bool,
-    pub black_king_side: bool,
-    pub black_queen_side: bool,
+impl Move {
+    /// Returns the move in SAN notation
+    pub fn as_san(&self) -> String {
+        let piece_symbol = match self.piece {
+            Piece::WhitePawn => "".to_string(),
+            Piece::BlackPawn => "".to_string(),
+            _ => get_piece_char(self.piece).to_string().to_uppercase(),
+        };
+
+        let capture_symbol = match self.capture {
+            Some(_) => "x",
+            None => "",
+        };
+
+        return format!(
+            "{}{}{}",
+            piece_symbol,
+            capture_symbol,
+            self.to.to_string().to_lowercase(),
+        );
+    }
 }
 
 impl From<&str> for CastlingRights {

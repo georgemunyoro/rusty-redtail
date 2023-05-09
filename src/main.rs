@@ -1,7 +1,7 @@
 mod board;
 mod chess;
-mod utils;
 mod movegen;
+mod utils;
 use crate::board::*;
 
 fn main() {
