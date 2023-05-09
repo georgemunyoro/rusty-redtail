@@ -9,17 +9,17 @@ pub trait MoveGenerator {
     fn generate_moves(&self) -> Vec<chess::Move>;
     fn generate_legal_moves(&mut self) -> Vec<chess::Move>;
 
-    fn generate_knight_moves(&self) -> Vec<chess::Move>;
-    fn generate_bishop_moves(&self) -> Vec<chess::Move>;
-    fn generate_rook_moves(&self) -> Vec<chess::Move>;
-    fn generate_queen_moves(&self) -> Vec<chess::Move>;
+    fn generate_knight_moves(&self, move_list: &mut Vec<chess::Move>);
+    fn generate_bishop_moves(&self, move_list: &mut Vec<chess::Move>);
+    fn generate_rook_moves(&self, move_list: &mut Vec<chess::Move>);
+    fn generate_queen_moves(&self, move_list: &mut Vec<chess::Move>);
 
-    fn generate_king_moves(&self) -> Vec<chess::Move>;
-    fn generate_castle_moves(&self) -> Vec<chess::Move>;
+    fn generate_king_moves(&self, move_list: &mut Vec<chess::Move>);
+    fn generate_castle_moves(&self, move_list: &mut Vec<chess::Move>);
 
-    fn generate_pawn_moves(&self) -> Vec<chess::Move>;
-    fn generate_white_pawn_moves(&self) -> Vec<chess::Move>;
-    fn generate_black_pawn_moves(&self) -> Vec<chess::Move>;
+    fn generate_pawn_moves(&self, move_list: &mut Vec<chess::Move>);
+    fn generate_white_pawn_moves(&self, move_list: &mut Vec<chess::Move>);
+    fn generate_black_pawn_moves(&self, move_list: &mut Vec<chess::Move>);
 
     fn perft(&mut self, depth: u8) -> u64;
     fn perft_divide(&mut self, depth: u8) -> u64;
@@ -80,9 +80,7 @@ impl std::ops::Add for PerftResult {
 }
 
 impl MoveGenerator for Position {
-    fn generate_black_pawn_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
-
+    fn generate_black_pawn_moves(&self, moves: &mut Vec<chess::Move>) {
         let mut piece_bitboard =
             self.bitboards[chess::Piece::BlackPawn as usize] & !chess::constants::RANK_1;
 
@@ -126,7 +124,7 @@ impl MoveGenerator for Position {
 
             // pawn captures
             let mut attacks = self.pawn_attacks[chess::Color::Black as usize][source as usize]
-                & self.get_occupancy(chess::Color::White);
+                & self.occupancies[chess::Color::White as usize];
             while attacks != 0 {
                 let target = chess::Square::from(utils::get_lsb(attacks));
 
@@ -179,13 +177,9 @@ impl MoveGenerator for Position {
 
             utils::pop_lsb(&mut piece_bitboard);
         }
-
-        return moves;
     }
 
-    fn generate_white_pawn_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
-
+    fn generate_white_pawn_moves(&self, moves: &mut Vec<chess::Move>) {
         let mut piece_bitboard =
             self.bitboards[chess::Piece::WhitePawn as usize] & !chess::constants::RANK_8;
 
@@ -234,7 +228,7 @@ impl MoveGenerator for Position {
 
             // pawn captures
             let mut attacks = self.pawn_attacks[chess::Color::White as usize][source as usize]
-                & self.get_occupancy(chess::Color::Black);
+                & self.occupancies[chess::Color::Black as usize];
             while attacks != 0 {
                 let target = chess::Square::from(utils::get_lsb(attacks));
 
@@ -287,28 +281,22 @@ impl MoveGenerator for Position {
 
             utils::pop_lsb(&mut piece_bitboard);
         }
-
-        return moves;
     }
 
-    fn generate_pawn_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
+    fn generate_pawn_moves(&self, move_list: &mut Vec<chess::Move>) {
+        // let mut moves = Vec::with_capacity(256);
 
         // white pawn moves
         if self.turn == chess::Color::White {
-            moves.extend(self.generate_white_pawn_moves());
+            self.generate_white_pawn_moves(move_list)
         }
         // black pawn moves
         else if self.turn == chess::Color::Black {
-            moves.extend(self.generate_black_pawn_moves());
+            self.generate_black_pawn_moves(move_list)
         }
-
-        return moves;
     }
 
-    fn generate_knight_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
-
+    fn generate_knight_moves(&self, moves: &mut Vec<chess::Move>) {
         let piece = if self.turn == chess::Color::White {
             chess::Piece::WhiteKnight
         } else {
@@ -316,7 +304,7 @@ impl MoveGenerator for Position {
         };
 
         let mut piece_bitboard = self.bitboards[piece as usize];
-        let friendly_pieces = self.get_occupancy(self.turn);
+        let friendly_pieces = self.occupancies[self.turn as usize];
 
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
@@ -334,13 +322,9 @@ impl MoveGenerator for Position {
                 moves.push(m);
             }
         }
-
-        return moves;
     }
 
-    fn generate_bishop_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
-
+    fn generate_bishop_moves(&self, moves: &mut Vec<chess::Move>) {
         let piece = if self.turn == chess::Color::White {
             chess::Piece::WhiteBishop
         } else {
@@ -348,8 +332,8 @@ impl MoveGenerator for Position {
         };
 
         let mut piece_bitboard = self.bitboards[piece as usize];
-        let friendly_pieces = self.get_occupancy(self.turn);
-        let enemy_pieces = self.get_occupancy(!self.turn);
+        let friendly_pieces = self.occupancies[self.turn as usize];
+        let enemy_pieces = self.occupancies[!self.turn as usize];
 
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
@@ -369,13 +353,9 @@ impl MoveGenerator for Position {
                 moves.push(m);
             }
         }
-
-        return moves;
     }
 
-    fn generate_rook_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
-
+    fn generate_rook_moves(&self, moves: &mut Vec<chess::Move>) {
         let piece = if self.turn == chess::Color::White {
             chess::Piece::WhiteRook
         } else {
@@ -383,8 +363,8 @@ impl MoveGenerator for Position {
         };
 
         let mut piece_bitboard = self.bitboards[piece as usize];
-        let friendly_pieces = self.get_occupancy(self.turn);
-        let enemy_pieces = self.get_occupancy(!self.turn);
+        let friendly_pieces = self.occupancies[self.turn as usize];
+        let enemy_pieces = self.occupancies[!self.turn as usize];
 
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
@@ -404,13 +384,9 @@ impl MoveGenerator for Position {
                 moves.push(m);
             }
         }
-
-        return moves;
     }
 
-    fn generate_queen_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
-
+    fn generate_queen_moves(&self, moves: &mut Vec<chess::Move>) {
         let piece = if self.turn == chess::Color::White {
             chess::Piece::WhiteQueen
         } else {
@@ -418,8 +394,8 @@ impl MoveGenerator for Position {
         };
 
         let mut piece_bitboard = self.bitboards[piece as usize];
-        let friendly_pieces = self.get_occupancy(self.turn);
-        let enemy_pieces = self.get_occupancy(!self.turn);
+        let friendly_pieces = self.occupancies[self.turn as usize];
+        let enemy_pieces = self.occupancies[!self.turn as usize];
 
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
@@ -439,13 +415,9 @@ impl MoveGenerator for Position {
                 moves.push(m);
             }
         }
-
-        return moves;
     }
 
-    fn generate_king_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
-
+    fn generate_king_moves(&self, moves: &mut Vec<chess::Move>) {
         let piece = if self.turn == chess::Color::White {
             chess::Piece::WhiteKing
         } else {
@@ -453,7 +425,7 @@ impl MoveGenerator for Position {
         };
 
         let mut piece_bitboard = self.bitboards[piece as usize];
-        let friendly_pieces = self.get_occupancy(self.turn);
+        let friendly_pieces = self.occupancies[self.turn as usize];
 
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
@@ -472,14 +444,10 @@ impl MoveGenerator for Position {
             }
         }
 
-        moves.extend(self.generate_castle_moves());
-
-        return moves;
+        self.generate_castle_moves(moves);
     }
 
-    fn generate_castle_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
-
+    fn generate_castle_moves(&self, moves: &mut Vec<chess::Move>) {
         if self.turn == chess::Color::White {
             let is_king_side_empty = self.get_piece_at_square(chess::Square::G1 as u8)
                 == chess::Piece::Empty
@@ -559,25 +527,23 @@ impl MoveGenerator for Position {
                 }
             }
         }
-
-        return moves;
     }
 
     fn generate_moves(&self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(256);
 
-        moves.extend(self.generate_pawn_moves());
-        moves.extend(self.generate_knight_moves());
-        moves.extend(self.generate_bishop_moves());
-        moves.extend(self.generate_rook_moves());
-        moves.extend(self.generate_queen_moves());
-        moves.extend(self.generate_king_moves());
+        self.generate_pawn_moves(&mut moves);
+        self.generate_knight_moves(&mut moves);
+        self.generate_bishop_moves(&mut moves);
+        self.generate_rook_moves(&mut moves);
+        self.generate_queen_moves(&mut moves);
+        self.generate_king_moves(&mut moves);
 
         return moves;
     }
 
     fn generate_legal_moves(&mut self) -> Vec<chess::Move> {
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(256);
 
         for m in self.generate_moves() {
             let is_valid = self.make_move(m, false);

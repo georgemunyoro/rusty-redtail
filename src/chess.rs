@@ -820,7 +820,7 @@ impl Display for Move {
             self.to.to_string().to_lowercase(),
             match self.promotion {
                 Some(p) => get_piece_char(p).to_lowercase().to_string(),
-                None => ' '.to_string(),
+                None => "".to_string(),
             },
         )
     }

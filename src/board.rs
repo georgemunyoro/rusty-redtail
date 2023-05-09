@@ -1,9 +1,10 @@
+use core::panic;
 use std::{io::BufRead, time::Instant};
 
 use crate::{
     chess,
     movegen::{self, MoveGenerator},
-    utils::{self, clear_bit},
+    utils::{self, clear_bit, print_bitboard},
 };
 
 mod constants {
@@ -182,6 +183,8 @@ pub struct Position {
     pub position_stack: Vec<HistoryEntry>,
 
     pub rand_seed: u32, //
+
+    pub occupancies: [u64; 3],
 }
 
 pub struct HistoryEntry {
@@ -192,6 +195,7 @@ pub struct HistoryEntry {
 
     pub halfmove_clock: u32,
     pub fullmove_number: u32,
+    pub occupancies: [u64; 3],
 }
 
 pub trait Board {
@@ -241,9 +245,11 @@ impl Board for Position {
 
             rand_seed: 1804289383,
 
-            history: Vec::new(),
+            history: Vec::with_capacity(512),
 
-            position_stack: Vec::new(),
+            position_stack: Vec::with_capacity(512),
+
+            occupancies: [0; 3],
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -403,6 +409,8 @@ impl Board for Position {
 
         // Set the fullmove number
         self.fullmove_number = sections[5].parse::<u32>().unwrap();
+
+        self.update_occupancies();
     }
 
     /// Returns true if the given square is attacked by the given color
@@ -441,7 +449,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackBishop
         };
-        if (self.get_bishop_magic_attacks(square, self.get_occupancy(chess::Color::Both))
+        if (self.get_bishop_magic_attacks(square, self.occupancies[chess::Color::Both as usize])
             & self.bitboards[bishop_piece as usize])
             != 0
         {
@@ -454,7 +462,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackRook
         };
-        if (self.get_rook_magic_attacks(square, self.get_occupancy(chess::Color::Both))
+        if (self.get_rook_magic_attacks(square, self.occupancies[chess::Color::Both as usize])
             & self.bitboards[rook_piece as usize])
             != 0
         {
@@ -467,7 +475,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackQueen
         };
-        if (self.get_queen_magic_attacks(square, self.get_occupancy(chess::Color::Both))
+        if (self.get_queen_magic_attacks(square, self.occupancies[chess::Color::Both as usize])
             & self.bitboards[queen_piece as usize])
             != 0
         {
@@ -636,6 +644,8 @@ impl Board for Position {
                 self.castling.black_king_side = false;
             }
 
+            self.update_occupancies();
+
             // ensure the king is not in check
             if self.is_in_check() {
                 self.unmake_move();
@@ -660,8 +670,8 @@ impl Board for Position {
     }
 
     fn debug(&mut self) {
-        for i in 0..=7 {
-            self.set_fen(chess::constants::STARTING_FEN);
+        for i in 0..=5 {
+            self.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
 
             let start = Instant::now();
             let result = self.perft_divide(i);
@@ -685,7 +695,15 @@ impl Position {
             castling: self.castling,
             halfmove_clock: self.halfmove_clock,
             fullmove_number: self.fullmove_number,
+            occupancies: self.occupancies,
         };
+    }
+
+    /// updates the occupancies bitboards
+    fn update_occupancies(&mut self) {
+        self.occupancies[chess::Color::Black as usize] = self.get_occupancy(chess::Color::Black);
+        self.occupancies[chess::Color::White as usize] = self.get_occupancy(chess::Color::White);
+        self.occupancies[chess::Color::Both as usize] = self.get_occupancy(chess::Color::Both);
     }
 
     pub fn apply_history_entry(&mut self, entry: HistoryEntry) {
