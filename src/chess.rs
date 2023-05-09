@@ -815,41 +815,13 @@ impl Display for Move {
         // return the move in long uci notation
         write!(
             f,
-            "{}{}{}{}{}{}",
+            "{}{}{}",
             self.from.to_string().to_lowercase(),
             self.to.to_string().to_lowercase(),
             match self.promotion {
                 Some(p) => get_piece_char(p).to_lowercase().to_string(),
                 None => ' '.to_string(),
             },
-            match self.capture {
-                Some(p) => get_piece_char(p),
-                None => ' ',
-            },
-            match &self.castle {
-                // Some(c) => format!(
-                //     "{}{}{}{} ",
-                //     match c.white_king_side {
-                //         true => "K",
-                //         false => "",
-                //     },
-                //     match c.white_queen_side {
-                //         true => "Q",
-                //         false => "",
-                //     },
-                //     match c.black_king_side {
-                //         true => "k",
-                //         false => "",
-                //     },
-                //     match c.black_king_side {
-                //         true => "q",
-                //         false => "",
-                //     },
-                // ),
-                false => " ",
-                true => "!",
-            },
-            if self.en_passant { 'e' } else { ' ' }
         )
     }
 }

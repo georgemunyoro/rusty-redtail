@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{io::BufRead, time::Instant};
 
 use crate::{
     chess,
@@ -662,41 +662,17 @@ impl Board for Position {
     fn debug(&mut self) {
         for i in 0..=7 {
             self.set_fen(chess::constants::STARTING_FEN);
+
             let start = Instant::now();
-            let nodes = self.perft(i);
+            let result = self.perft(i);
             let duration = start.elapsed();
-            let nodes_per_second = nodes as f64 / duration.as_secs_f64();
+            let nodes_per_second = result as f64 / duration.as_secs_f64();
+
             println!(
                 "perft {} - {} node(s) in {:?} - ({:.0}nps)",
-                i, nodes, duration, nodes_per_second
+                i, result, duration, nodes_per_second
             );
         }
-
-        // self.draw();
-
-        // self.set_fen(chess::constants::STARTING_FEN);
-        // self.set_fen("r3k2r/pPppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
-        // self.set_fen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
-        // let moves = self.generate_moves();
-        // println!("{} moves", moves.len());
-        // for m in moves {
-        //     println!("---------------------");
-        //     println!("{}", m);
-        //     self.draw();
-        //     self.make_move(m, false);
-        //     println!("{:?}", self.castling);
-        //     match self.enpassant {
-        //         Some(s) => println!("enpas square: {}", s),
-        //         None => println!("enpas square: None"),
-        //     }
-        //     self.draw();
-        //     self.unmake_move();
-        //     self.draw();
-        //     println!("---------------------");
-        //     // wait for input
-        //     let mut input = String::new();
-        //     std::io::stdin().read_line(&mut input).unwrap();
-        // }
     }
 }
 

@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
     board::{Board, Position},
     chess, utils,
@@ -20,6 +22,61 @@ pub trait MoveGenerator {
     fn generate_black_pawn_moves(&self) -> Vec<chess::Move>;
 
     fn perft(&mut self, depth: u8) -> u64;
+    fn perft_divide(&mut self, depth: u8) -> u64;
+    fn detailed_perft(&mut self, depth: u8, print: bool) -> PerftResult;
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PerftResult {
+    pub depth: u8,
+    pub nodes: u64,
+    pub captures: u64,
+    pub en_passant: u64,
+    pub castles: u64,
+    pub promotions: u64,
+    pub checks: u64,
+    pub discovery_checks: u64,
+    pub double_checks: u64,
+    pub checkmates: u64,
+}
+
+impl Display for PerftResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut result = String::new();
+
+        result.push_str(format!("depth: {}\n", self.depth).as_str());
+        result.push_str(format!("nodes: {}\n", self.nodes).as_str());
+        result.push_str(format!("captures: {}\n", self.captures).as_str());
+        result.push_str(format!("en_passant: {}\n", self.en_passant).as_str());
+        result.push_str(format!("castles: {}\n", self.castles).as_str());
+        result.push_str(format!("promotions: {}\n", self.promotions).as_str());
+        result.push_str(format!("checks: {}\n", self.checks).as_str());
+        result.push_str(format!("discovery_checks: {}\n", self.discovery_checks).as_str());
+        result.push_str(format!("double_checks: {}\n", self.double_checks).as_str());
+        result.push_str(format!("checkmates: {}\n", self.checkmates).as_str());
+
+        write!(f, "{}", result)
+    }
+}
+
+// implement addition of two PerftResult structs
+impl std::ops::Add for PerftResult {
+    type Output = PerftResult;
+
+    fn add(self, other: PerftResult) -> PerftResult {
+        PerftResult {
+            depth: self.depth,
+            nodes: self.nodes + other.nodes,
+            captures: self.captures + other.captures,
+            en_passant: self.en_passant + other.en_passant,
+            castles: self.castles + other.castles,
+            promotions: self.promotions + other.promotions,
+            checks: self.checks + other.checks,
+            discovery_checks: self.discovery_checks + other.discovery_checks,
+            double_checks: self.double_checks + other.double_checks,
+            checkmates: self.checkmates + other.checkmates,
+        }
+    }
 }
 
 impl MoveGenerator for Position {
@@ -431,6 +488,7 @@ impl MoveGenerator for Position {
             if is_king_side_empty && self.castling.white_king_side {
                 if !self.is_square_attacked(chess::Square::E1, chess::Color::Black)
                     && !self.is_square_attacked(chess::Square::F1, chess::Color::Black)
+                    && self.get_piece_at_square(chess::Square::H1 as u8) == chess::Piece::WhiteRook
                 {
                     let mut m = chess::Move::new(
                         chess::Square::E1,
@@ -444,11 +502,13 @@ impl MoveGenerator for Position {
 
             let is_queen_side_empty = self.get_piece_at_square(chess::Square::D1 as u8)
                 == chess::Piece::Empty
-                && self.get_piece_at_square(chess::Square::C1 as u8) == chess::Piece::Empty;
+                && self.get_piece_at_square(chess::Square::C1 as u8) == chess::Piece::Empty
+                && self.get_piece_at_square(chess::Square::B1 as u8) == chess::Piece::Empty;
 
             if is_queen_side_empty && self.castling.white_queen_side {
                 if !self.is_square_attacked(chess::Square::E1, chess::Color::Black)
                     && !self.is_square_attacked(chess::Square::D1, chess::Color::Black)
+                    && self.get_piece_at_square(chess::Square::A1 as u8) == chess::Piece::WhiteRook
                 {
                     let mut m = chess::Move::new(
                         chess::Square::E1,
@@ -467,6 +527,7 @@ impl MoveGenerator for Position {
             if is_king_side_empty && self.castling.black_king_side {
                 if !self.is_square_attacked(chess::Square::E8, chess::Color::White)
                     && !self.is_square_attacked(chess::Square::F8, chess::Color::White)
+                    && self.get_piece_at_square(chess::Square::H8 as u8) == chess::Piece::BlackRook
                 {
                     let mut m = chess::Move::new(
                         chess::Square::E8,
@@ -480,11 +541,13 @@ impl MoveGenerator for Position {
 
             let is_queen_side_empty = self.get_piece_at_square(chess::Square::D8 as u8)
                 == chess::Piece::Empty
-                && self.get_piece_at_square(chess::Square::C8 as u8) == chess::Piece::Empty;
+                && self.get_piece_at_square(chess::Square::C8 as u8) == chess::Piece::Empty
+                && self.get_piece_at_square(chess::Square::B8 as u8) == chess::Piece::Empty;
 
             if is_queen_side_empty && self.castling.black_queen_side {
                 if !self.is_square_attacked(chess::Square::E8, chess::Color::White)
                     && !self.is_square_attacked(chess::Square::D8, chess::Color::White)
+                    && self.get_piece_at_square(chess::Square::A8 as u8) == chess::Piece::BlackRook
                 {
                     let mut m = chess::Move::new(
                         chess::Square::E8,
@@ -517,12 +580,12 @@ impl MoveGenerator for Position {
         let mut moves = Vec::new();
 
         for m in self.generate_moves() {
-            self.make_move(m, false);
+            let is_valid = self.make_move(m, false);
 
-            if !self.is_in_check() {
+            if is_valid {
                 moves.push(m);
+                self.unmake_move();
             }
-            self.unmake_move();
         }
 
         return moves;
@@ -545,6 +608,78 @@ impl MoveGenerator for Position {
         }
 
         return nodes;
+    }
+
+    fn perft_divide(&mut self, depth: u8) -> u64 {
+        if depth == 0 {
+            return 1;
+        }
+
+        let mut nodes = 0;
+        let moves = self.generate_moves();
+
+        for m in moves {
+            let is_valid_move = self.make_move(m, false);
+            if !is_valid_move {
+                continue;
+            }
+            let child_nodes = self.perft(depth - 1);
+            nodes += child_nodes;
+            println!("{}: {}", m, child_nodes);
+            self.unmake_move();
+        }
+
+        return nodes;
+    }
+
+    fn detailed_perft(&mut self, depth: u8, print: bool) -> PerftResult {
+        if depth == 0 {
+            return PerftResult {
+                depth: depth,
+                nodes: 1,
+                captures: 0,
+                en_passant: 0,
+                castles: 0,
+                promotions: 0,
+                checks: 0,
+                discovery_checks: 0,
+                double_checks: 0,
+                checkmates: 0,
+            };
+        }
+
+        let mut result = PerftResult {
+            depth: depth,
+            nodes: 0,
+            captures: 0,
+            en_passant: 0,
+            castles: 0,
+            promotions: 0,
+            checks: 0,
+            discovery_checks: 0,
+            double_checks: 0,
+            checkmates: 0,
+        };
+
+        let moves = self.generate_moves();
+
+        for m in moves {
+            let is_valid_move = self.make_move(m, false);
+            if !is_valid_move {
+                continue;
+            }
+
+            let child_result = self.detailed_perft(depth - 1, false);
+
+            result = result + child_result.clone();
+
+            if print {
+                println!("{}: {} - {}", m, child_result.nodes, self.as_fen());
+            }
+            self.unmake_move();
+        }
+
+        return result;
     }
 }
 
