@@ -1,5 +1,6 @@
 mod board;
 mod chess;
+mod evaluation;
 mod movegen;
 mod uci;
 mod utils;

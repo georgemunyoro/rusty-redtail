@@ -1,18 +1,17 @@
-use std::{
-    io::{self, BufRead},
-    ops::RangeBounds,
-};
+use std::io::{self, BufRead};
 
 use rand::Rng;
 
 use crate::{
     board::{Board, Position},
     chess,
+    evaluation::Evaluator,
     movegen::MoveGenerator,
 };
 
 pub struct UCI {
     pub position: Position,
+    pub evaluator: Evaluator,
     pub running: bool,
 }
 
@@ -27,6 +26,17 @@ impl UCI {
     pub fn new() -> UCI {
         let mut uci = UCI {
             position: Position::new(None),
+            evaluator: Evaluator {
+                running: false,
+                transposition_table: std::collections::HashMap::new(),
+                result: crate::evaluation::PositionEvaluation {
+                    score: 0,
+                    best_move: None,
+                    depth: 0,
+                    ply: 0,
+                    nodes: 0,
+                },
+            },
             running: true,
         };
         uci.position.set_fen(chess::constants::STARTING_FEN);
@@ -74,22 +84,83 @@ impl UCI {
                             _ => {}
                         }
                     }
+
+                    let depth = match options.depth {
+                        Some(depth) => depth as i32,
+                        None => 5,
+                    };
+
+                    let best_move = self.evaluator.get_best_move(&mut self.position, depth);
+                    // println!("{:?}", self.evaluator.result);
+                    // println!("bestmove {}", best_move.unwrap());
+
+                    match best_move {
+                        Some(best_move) => {
+                            println!(
+                                "info score {} depth {} nodes {}",
+                                self.evaluator.result.score,
+                                self.evaluator.result.depth,
+                                self.evaluator.result.nodes
+                            );
+                            println!("bestmove {}", best_move);
+                        }
+                        None => {}
+                    }
                 }
                 "stop" => {
-                    let moves = self.position.generate_legal_moves();
-                    let num = rand::thread_rng().gen_range(0..moves.len());
-                    println!("bestmove {}", moves[num]);
+                    let best_move = self.evaluator.get_best_move(&mut self.position, 5);
+                    println!("{:?}", self.evaluator.result);
+                    println!("bestmove {}", best_move.unwrap());
+                }
+                "perft" => {
+                    let depth = tokens[1].parse::<u8>().unwrap();
+                    let nodes = self.position.perft(depth);
+
+                    println!("Nodes: {}", nodes);
                 }
                 "position" => self.handle_position_command(tokens),
                 "quit" => self.stop(),
                 "draw" => self.position.draw(),
                 "ucinewgame" => self.position.set_fen(chess::constants::STARTING_FEN),
                 "isready" => println!("readyok"),
+                "hash" => println!("0x{:016x}u64", self.position.hash),
                 "listmoves" => {
                     let moves = self.position.generate_legal_moves();
                     for m in moves {
                         println!("{}", m);
                     }
+                }
+                "evaluate" => {
+                    self.evaluator.result = crate::evaluation::PositionEvaluation {
+                        score: 0,
+                        best_move: None,
+                        depth: 0,
+                        ply: 0,
+                        nodes: 0,
+                    };
+                    let moves = self.position.generate_moves();
+                    // println!("{}", self.evaluator.evaluate(&mut self.position));
+                    for m in moves {
+                        let is_valid = self.position.make_move(m, false);
+                        if !is_valid {
+                            continue;
+                        }
+
+                        let score =
+                            -self
+                                .evaluator
+                                .negamax(&mut self.position, -1000000, 1000000, 4);
+                        self.position.unmake_move();
+
+                        println!("{} {}", m, score);
+                    }
+                    self.evaluator.result = crate::evaluation::PositionEvaluation {
+                        score: 0,
+                        best_move: None,
+                        depth: 0,
+                        ply: 0,
+                        nodes: 0,
+                    };
                 }
                 _ => {
                     println!("Unknown command: {}", tokens[0]);

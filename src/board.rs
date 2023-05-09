@@ -1,5 +1,7 @@
 use core::panic;
-use std::{io::BufRead, time::Instant};
+use std::{hash::Hasher, io::BufRead, time::Instant};
+
+use rand::Rng;
 
 use crate::{
     chess,
@@ -182,9 +184,16 @@ pub struct Position {
     pub history: Vec<chess::Move>,
     pub position_stack: Vec<HistoryEntry>,
 
-    pub rand_seed: u32, //
+    pub rand_seed: u32,
 
     pub occupancies: [u64; 3],
+
+    pub zobrist_piece_keys: [[u64; 64]; 12],
+    pub zobrist_castling_keys: [u64; 16],
+    pub zobrist_enpassant_keys: [u64; 64],
+    pub zobrist_turn_key: u64,
+
+    pub hash: u64,
 }
 
 pub struct HistoryEntry {
@@ -250,12 +259,23 @@ impl Board for Position {
             position_stack: Vec::with_capacity(512),
 
             occupancies: [0; 3],
+
+            zobrist_piece_keys: [[0; 64]; 12],
+            zobrist_castling_keys: [0; 16],
+            zobrist_enpassant_keys: [0; 64],
+            zobrist_turn_key: 0,
+
+            hash: 0,
         };
 
         pos.initialize_leaper_piece_attacks();
         pos.initialize_slider_piece_attacks();
         pos.initialize_slider_magic_attacks(false);
         pos.initialize_slider_magic_attacks(true);
+
+        pos.init_zorbrist_keys();
+        pos.update_occupancies();
+        pos.update_hash();
 
         match fen {
             Some(p) => Position::set_fen(&mut pos, p),
@@ -272,6 +292,9 @@ impl Board for Position {
         } else {
             utils::get_lsb(self.bitboards[chess::Piece::BlackKing as usize])
         };
+        if king_square >= 64 {
+            return true;
+        }
         self.is_square_attacked(chess::Square::from(king_square), !self.turn)
     }
 
@@ -411,6 +434,7 @@ impl Board for Position {
         self.fullmove_number = sections[5].parse::<u32>().unwrap();
 
         self.update_occupancies();
+        self.update_hash();
     }
 
     /// Returns true if the given square is attacked by the given color
@@ -449,7 +473,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackBishop
         };
-        if (self.get_bishop_magic_attacks(square, self.occupancies[chess::Color::Both as usize])
+        if (self.get_bishop_magic_attacks(square, self.get_occupancy(chess::Color::Both))
             & self.bitboards[bishop_piece as usize])
             != 0
         {
@@ -462,7 +486,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackRook
         };
-        if (self.get_rook_magic_attacks(square, self.occupancies[chess::Color::Both as usize])
+        if (self.get_rook_magic_attacks(square, self.get_occupancy(chess::Color::Both))
             & self.bitboards[rook_piece as usize])
             != 0
         {
@@ -475,7 +499,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackQueen
         };
-        if (self.get_queen_magic_attacks(square, self.occupancies[chess::Color::Both as usize])
+        if (self.get_queen_magic_attacks(square, self.get_occupancy(chess::Color::Both))
             & self.bitboards[queen_piece as usize])
             != 0
         {
@@ -687,6 +711,65 @@ impl Board for Position {
 }
 
 impl Position {
+    pub fn update_hash(&mut self) {
+        let mut hash: u64 = 0;
+        for piece in (chess::Piece::BlackPawn as usize)..=(chess::Piece::WhiteKing as usize) {
+            for square in 0..64 {
+                if utils::get_bit(self.bitboards[piece as usize], square) != 0 {
+                    hash ^= self.zobrist_piece_keys[piece as usize][square as usize];
+                }
+            }
+        }
+
+        if self.enpassant != None {
+            hash ^= self.zobrist_enpassant_keys[self.enpassant.unwrap() as usize];
+        }
+
+        if self.castling.white_king_side {
+            hash ^= self.zobrist_castling_keys[0];
+        }
+
+        if self.castling.white_queen_side {
+            hash ^= self.zobrist_castling_keys[1];
+        }
+
+        if self.castling.black_king_side {
+            hash ^= self.zobrist_castling_keys[2];
+        }
+
+        if self.castling.black_queen_side {
+            hash ^= self.zobrist_castling_keys[3];
+        }
+
+        if self.turn == chess::Color::Black {
+            hash ^= self.zobrist_turn_key;
+        }
+
+        self.hash = hash;
+    }
+
+    pub fn init_zorbrist_keys(&mut self) {
+        self.rand_seed = 1804289383;
+
+        for piece in (chess::Piece::BlackPawn as usize)..=(chess::Piece::WhiteKing as usize) {
+            for square in 0..64 {
+                self.zobrist_piece_keys[piece as usize][square] =
+                    utils::get_pseudorandom_number_u64(&mut self.rand_seed);
+            }
+        }
+
+        for square in 0..64 {
+            self.zobrist_enpassant_keys[square] =
+                utils::get_pseudorandom_number_u64(&mut self.rand_seed);
+        }
+
+        for i in 0..16 {
+            self.zobrist_castling_keys[i] = utils::get_pseudorandom_number_u64(&mut self.rand_seed);
+        }
+
+        self.zobrist_turn_key = utils::get_pseudorandom_number_u64(&mut self.rand_seed);
+    }
+
     pub fn to_history_entry(&self) -> HistoryEntry {
         return HistoryEntry {
             bitboards: self.bitboards,
@@ -713,6 +796,7 @@ impl Position {
         self.castling = entry.castling;
         self.halfmove_clock = entry.halfmove_clock;
         self.fullmove_number = entry.fullmove_number;
+        self.occupancies = entry.occupancies;
     }
 
     pub fn get_piece_at_square(&self, square: u8) -> chess::Piece {
