@@ -664,12 +664,12 @@ impl Board for Position {
             self.set_fen(chess::constants::STARTING_FEN);
 
             let start = Instant::now();
-            let result = self.perft(i);
+            let result = self.perft_divide(i);
             let duration = start.elapsed();
             let nodes_per_second = result as f64 / duration.as_secs_f64();
 
             println!(
-                "perft {} - {} node(s) in {:?} - ({:.0}nps)",
+                "perft {} - {} node(s) in {:?} - ({:.0}nps)\n",
                 i, result, duration, nodes_per_second
             );
         }
