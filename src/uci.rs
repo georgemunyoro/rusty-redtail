@@ -3,7 +3,7 @@ use std::io::{self, BufRead};
 use crate::{
     board::{Board, Position},
     chess,
-    evaluation::Evaluator,
+    evaluation::{Evaluator, SearchOptions, MAX_PLY},
     movegen::MoveGenerator,
 };
 
@@ -11,13 +11,6 @@ pub struct UCI {
     pub position: Position,
     pub evaluator: Evaluator,
     pub running: bool,
-}
-
-#[derive(Debug)]
-pub struct GoOptions {
-    pub depth: Option<u8>,
-    pub movetime: Option<u32>,
-    pub infinite: bool,
 }
 
 impl UCI {
@@ -34,10 +27,10 @@ impl UCI {
                     ply: 0,
                     nodes: 0,
                 },
-                killer_moves: [[chess::NULL_MOVE; 64]; 2],
-                history_moves: [[0; 64]; 12],
-                pv_length: [0; 64],
-                pv_table: [[chess::NULL_MOVE; 64]; 64],
+                killer_moves: [[chess::NULL_MOVE; MAX_PLY]; 2],
+                history_moves: [[0; MAX_PLY]; 12],
+                pv_length: [0; MAX_PLY],
+                pv_table: [[chess::NULL_MOVE; MAX_PLY]; 64],
             },
             running: true,
         };
@@ -66,7 +59,7 @@ impl UCI {
                 }
                 "go" => {
                     // store go command options
-                    let mut options = GoOptions {
+                    let mut options = SearchOptions {
                         depth: None,
                         movetime: None,
                         infinite: false,
@@ -87,43 +80,23 @@ impl UCI {
                         }
                     }
 
-                    let depth = match options.depth {
-                        Some(depth) => depth as u32,
-                        None => 5,
-                    };
-
-                    let best_move = self.evaluator.get_best_move(&mut self.position, depth);
+                    let best_move = self.evaluator.get_best_move(&mut self.position, options);
 
                     match best_move {
                         Some(best_move) => {
-                            print!(
-                                "info score {} depth {} nodes {}",
-                                self.evaluator.result.score,
-                                self.evaluator.result.depth,
-                                self.evaluator.result.nodes
-                            );
-
-                            let mut pv = String::new();
-                            for i in 0..self.evaluator.pv_length[0] {
-                                let pv_node = self.evaluator.pv_table[0][i as usize];
-                                if pv_node == chess::NULL_MOVE {
-                                    break;
-                                }
-                                pv.push_str(pv_node.to_string().as_str());
-                                pv.push_str(" ");
-                            }
-
-                            println!(" info pv {}", pv);
                             println!("bestmove {}", best_move);
                         }
                         None => {}
                     }
                 }
-                "stop" => {
-                    let best_move = self.evaluator.get_best_move(&mut self.position, 5);
-                    println!("{:?}", self.evaluator.result);
-                    println!("bestmove {}", best_move.unwrap());
-                }
+                "stop" => match self.evaluator.result.best_move {
+                    Some(best_move) => {
+                        println!("bestmove {}", best_move);
+                    }
+                    None => {
+                        println!("bestmove {}", chess::NULL_MOVE);
+                    }
+                },
                 "perft" => {
                     let depth = tokens[1].parse::<u8>().unwrap();
                     let nodes = self.position.perft(depth);
@@ -139,9 +112,9 @@ impl UCI {
                 "listmoves" => {
                     let mut moves = self.position.generate_legal_moves();
                     println!();
-                    self.evaluator.order_moves(&mut moves);
+                    self.evaluator.order_moves(&mut moves, false);
                     for m in moves {
-                        println!("{} {}", m, self.evaluator.get_move_mvv_lva(m));
+                        println!("{} {}", m, self.evaluator.get_move_mvv_lva(m, false));
                     }
                 }
                 "evaluate" => {

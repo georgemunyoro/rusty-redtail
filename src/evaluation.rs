@@ -7,6 +7,8 @@ use crate::{
     utils,
 };
 
+pub const MAX_PLY: usize = 64;
+
 static ROOK_POSITIONAL_SCORE: [i32; 64] = [
     50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 0, 0, 10, 20, 20, 10, 0, 0, 0,
     0, 10, 20, 20, 10, 0, 0, 0, 0, 10, 20, 20, 10, 0, 0, 0, 0, 10, 20, 20, 10, 0, 0, 0, 0, 10, 20,
@@ -123,23 +125,34 @@ static MIRROR_SCORE: [chess::Square; 64] = [
 pub struct PositionEvaluation {
     pub score: i32,
     pub best_move: Option<chess::Move>,
-    pub depth: u32,
+    pub depth: u8,
     pub ply: u32,
     pub nodes: i32,
+}
+
+#[derive(Debug)]
+pub struct SearchOptions {
+    pub depth: Option<u8>,
+    pub movetime: Option<u32>,
+    pub infinite: bool,
 }
 
 pub struct Evaluator {
     pub running: bool,
     pub transposition_table: HashMap<u64, PositionEvaluation>,
     pub result: PositionEvaluation,
-    pub killer_moves: [[chess::Move; 64]; 2],
-    pub history_moves: [[u32; 64]; 12],
-    pub pv_table: [[chess::Move; 64]; 64],
-    pub pv_length: [u32; 64],
+    pub killer_moves: [[chess::Move; MAX_PLY]; 2],
+    pub history_moves: [[u32; MAX_PLY]; 12],
+    pub pv_table: [[chess::Move; MAX_PLY]; MAX_PLY],
+    pub pv_length: [u32; MAX_PLY],
 }
 
 impl Evaluator {
-    pub fn get_best_move(&mut self, position: &mut Position, depth: u32) -> Option<chess::Move> {
+    pub fn get_best_move(
+        &mut self,
+        position: &mut Position,
+        options: SearchOptions,
+    ) -> Option<chess::Move> {
         self.result = PositionEvaluation {
             score: -50000,
             best_move: None,
@@ -147,27 +160,69 @@ impl Evaluator {
             ply: 0,
             nodes: 0,
         };
-        self.killer_moves = [[chess::NULL_MOVE; 64]; 2];
-        self.history_moves = [[0; 64]; 12];
-        self.pv_length = [0; 64];
-        self.pv_table = [[chess::NULL_MOVE; 64]; 64];
-        position.draw();
-        self.negamax(position, -50000, 50000, depth);
+        self.killer_moves = [[chess::NULL_MOVE; MAX_PLY]; 2];
+        self.history_moves = [[0; MAX_PLY]; 12];
+        self.pv_length = [0; MAX_PLY];
+        self.pv_table = [[chess::NULL_MOVE; MAX_PLY]; MAX_PLY];
+
+        let depth = match options.depth {
+            Some(depth) => depth as u8,
+            None => 5,
+        };
+
+        for current_depth in 1..=depth {
+            // self.result.nodes = 0;
+            self.result.ply = 0;
+
+            self.negamax(position, -50000, 50000, current_depth);
+
+            match self.result.best_move {
+                None => {}
+                _ => {
+                    print!(
+                        "info score {} depth {} nodes {}",
+                        self.result.score, self.result.depth, self.result.nodes
+                    );
+
+                    let mut pv = String::new();
+                    for i in 0..self.pv_length[0] {
+                        let pv_node = self.pv_table[0][i as usize];
+                        if pv_node == chess::NULL_MOVE {
+                            break;
+                        }
+                        pv.push_str(pv_node.to_string().as_str());
+                        pv.push_str(" ");
+                    }
+                    println!(" info pv {}", pv);
+                }
+            }
+        }
+
         return self.result.best_move;
     }
 
-    pub fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: u32) -> i32 {
+    pub fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: u8) -> i32 {
         self.pv_length[self.result.ply as usize] = self.result.ply;
 
         if depth == 0 {
             return self.quiescence(position, alpha, beta);
         }
 
+        if self.result.ply > (MAX_PLY as u32) {
+            return self.evaluate(position);
+        }
+
         self.result.nodes += 1;
 
         let mut mut_alpha = alpha.clone();
         let mut moves = position.generate_moves();
-        self.order_moves(&mut moves);
+
+        // check if following pv line
+        let is_following_pv_line = moves
+            .iter()
+            .any(|&m| m == self.pv_table[0][self.result.ply as usize]);
+
+        self.order_moves(&mut moves, is_following_pv_line);
         let mut legal_move_count = 0;
 
         for m in moves {
@@ -199,7 +254,7 @@ impl Evaluator {
             }
 
             if score > mut_alpha {
-                self.history_moves[m.piece as usize][m.to as usize] += depth;
+                self.history_moves[m.piece as usize][m.to as usize] += depth as u32;
 
                 self.pv_table[self.result.ply as usize][self.result.ply as usize] = m;
                 for i in (self.result.ply + 1)..(self.pv_length[self.result.ply as usize + 1]) {
@@ -246,7 +301,7 @@ impl Evaluator {
         }
 
         let mut moves = position.generate_moves();
-        self.order_moves(&mut moves);
+        self.order_moves(&mut moves, false);
 
         for m in moves {
             let is_valid = position.make_move(m, true);
@@ -275,7 +330,13 @@ impl Evaluator {
     }
 
     /// Returns a score for a move based on the Most Valuable Victim - Least Valuable Attacker heuristic.
-    pub fn get_move_mvv_lva(&mut self, m: chess::Move) -> u32 {
+    pub fn get_move_mvv_lva(&mut self, m: chess::Move, is_following_pv_line: bool) -> u32 {
+        if is_following_pv_line {
+            if m == self.pv_table[0][self.result.ply as usize] {
+                return 20000;
+            }
+        }
+
         let value = match m.capture {
             Some(c) => MVV_LVA[m.piece as usize][c as usize],
             None => {
@@ -294,10 +355,10 @@ impl Evaluator {
         return value;
     }
 
-    pub fn order_moves(&mut self, moves: &mut Vec<chess::Move>) {
+    pub fn order_moves(&mut self, moves: &mut Vec<chess::Move>, is_following_pv_line: bool) {
         moves.sort_by(|a, b| {
-            let a_value = self.get_move_mvv_lva(*a);
-            let b_value = self.get_move_mvv_lva(*b);
+            let a_value = self.get_move_mvv_lva(*a, is_following_pv_line);
+            let b_value = self.get_move_mvv_lva(*b, is_following_pv_line);
             return b_value.cmp(&a_value);
         });
     }
