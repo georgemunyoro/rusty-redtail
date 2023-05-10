@@ -123,7 +123,7 @@ static MIRROR_SCORE: [chess::Square; 64] = [
 pub struct PositionEvaluation {
     pub score: i32,
     pub best_move: Option<chess::Move>,
-    pub depth: i32,
+    pub depth: u32,
     pub ply: i32,
     pub nodes: i32,
 }
@@ -132,10 +132,12 @@ pub struct Evaluator {
     pub running: bool,
     pub transposition_table: HashMap<u64, PositionEvaluation>,
     pub result: PositionEvaluation,
+    pub killer_moves: [[chess::Move; 64]; 2],
+    pub history_moves: [[u32; 64]; 12],
 }
 
 impl Evaluator {
-    pub fn get_best_move(&mut self, position: &mut Position, depth: i32) -> Option<chess::Move> {
+    pub fn get_best_move(&mut self, position: &mut Position, depth: u32) -> Option<chess::Move> {
         self.result = PositionEvaluation {
             score: -50000,
             best_move: None,
@@ -143,12 +145,14 @@ impl Evaluator {
             ply: 0,
             nodes: 0,
         };
+        self.killer_moves = [[chess::NULL_MOVE; 64]; 2];
+        self.history_moves = [[0; 64]; 12];
         position.draw();
         self.negamax(position, -50000, 50000, depth);
         return self.result.best_move;
     }
 
-    pub fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: i32) -> i32 {
+    pub fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: u32) -> i32 {
         if depth == 0 {
             return self.quiescence(position, alpha, beta);
         }
@@ -156,18 +160,14 @@ impl Evaluator {
         self.result.nodes += 1;
 
         let mut mut_alpha = alpha.clone();
-        let moves = position.generate_moves();
-        // self.order_moves(&mut moves);
+        let mut moves = position.generate_moves();
+        self.order_moves(&mut moves);
         let mut legal_move_count = 0;
 
         for m in moves {
             let is_valid = position.make_move(m, false);
             if !is_valid {
                 continue;
-            }
-
-            if self.result.ply == 0 {
-                println!("calculating move {}", m);
             }
 
             legal_move_count += 1;
@@ -180,10 +180,21 @@ impl Evaluator {
             position.unmake_move();
 
             if score >= beta {
+                match m.capture {
+                    None => {
+                        self.killer_moves[1][self.result.ply as usize] =
+                            self.killer_moves[0][self.result.ply as usize];
+                        self.killer_moves[0][self.result.ply as usize] = m;
+                    }
+                    _ => {}
+                }
+
                 return beta;
             }
 
             if score > mut_alpha {
+                self.history_moves[m.piece as usize][m.to as usize] += depth;
+
                 mut_alpha = score;
                 if self.result.ply == 0 {
                     self.result.best_move = Some(m);
@@ -205,21 +216,22 @@ impl Evaluator {
     }
 
     pub fn quiescence(&mut self, position: &mut Position, alpha: i32, beta: i32) -> i32 {
-        let stand_pat = self.evaluate(position);
-        let mut mut_alpha = alpha.clone();
-
         self.result.nodes += 1;
 
-        if stand_pat >= beta {
+        let mut mut_alpha = alpha.clone();
+
+        let evaluation = self.evaluate(position);
+
+        if evaluation >= beta {
             return beta;
         }
 
-        if mut_alpha < stand_pat {
-            mut_alpha = stand_pat;
+        if evaluation > mut_alpha {
+            mut_alpha = evaluation;
         }
 
-        let moves = position.generate_moves();
-        // self.order_moves(&mut moves);
+        let mut moves = position.generate_moves();
+        self.order_moves(&mut moves);
 
         for m in moves {
             let is_valid = position.make_move(m, true);
@@ -228,7 +240,9 @@ impl Evaluator {
             }
 
             self.result.ply += 1;
-            let score = -self.quiescence(position, -beta, -alpha);
+
+            let score = -self.quiescence(position, -beta, -mut_alpha);
+
             self.result.ply -= 1;
 
             position.unmake_move();
@@ -237,7 +251,7 @@ impl Evaluator {
                 return beta;
             }
 
-            if score > alpha {
+            if score > mut_alpha {
                 mut_alpha = score;
             }
         }
@@ -249,7 +263,17 @@ impl Evaluator {
     pub fn get_move_mvv_lva(&mut self, m: chess::Move) -> u32 {
         let value = match m.capture {
             Some(c) => MVV_LVA[m.piece as usize][c as usize],
-            None => 0,
+            None => {
+                if self.killer_moves[0][self.result.ply as usize] == m {
+                    return 9000;
+                }
+
+                if self.killer_moves[1][self.result.ply as usize] == m {
+                    return 9000;
+                }
+
+                return self.history_moves[m.piece as usize][m.to as usize];
+            }
         };
 
         return value;
@@ -357,6 +381,7 @@ impl Evaluator {
 mod tests {
     use crate::{
         board::{Board, Position},
+        chess,
         evaluation::Evaluator,
     };
 
@@ -372,6 +397,8 @@ mod tests {
                 ply: 0,
                 nodes: 0,
             },
+            killer_moves: [[chess::NULL_MOVE; 64]; 2],
+            history_moves: [[0; 64]; 12],
         };
         let mut board = Position::new(None);
 

@@ -34,6 +34,8 @@ impl UCI {
                     ply: 0,
                     nodes: 0,
                 },
+                killer_moves: [[chess::NULL_MOVE; 64]; 2],
+                history_moves: [[0; 64]; 12],
             },
             running: true,
         };
@@ -84,7 +86,7 @@ impl UCI {
                     }
 
                     let depth = match options.depth {
-                        Some(depth) => depth as i32,
+                        Some(depth) => depth as u32,
                         None => 5,
                     };
 

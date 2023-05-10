@@ -785,7 +785,7 @@ pub struct CastlingRights {
     pub black_queen_side: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Move {
     pub from: Square,
     pub to: Square,
@@ -848,6 +848,16 @@ impl Move {
         );
     }
 }
+
+pub static NULL_MOVE: Move = Move {
+    from: Square::NoSq,
+    to: Square::NoSq,
+    piece: Piece::Empty,
+    capture: None,
+    castle: false,
+    promotion: None,
+    en_passant: false,
+};
 
 impl From<&str> for CastlingRights {
     fn from(v: &str) -> Self {

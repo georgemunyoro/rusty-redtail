@@ -26,8 +26,6 @@ pub trait MoveGenerator {
     fn detailed_perft(&mut self, depth: u8, print: bool) -> PerftResult;
 }
 
-// rnbqkbnr/pp1ppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
-
 #[derive(Debug, Clone, Copy)]
 pub struct PerftResult {
     pub depth: u8,
