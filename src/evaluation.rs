@@ -225,6 +225,8 @@ impl Evaluator {
         self.order_moves(&mut moves, is_following_pv_line);
         let mut legal_move_count = 0;
 
+        let mut found_pv = false;
+
         for m in moves {
             let is_valid = position.make_move(m, false);
             if !is_valid {
@@ -234,7 +236,16 @@ impl Evaluator {
             legal_move_count += 1;
             self.result.ply += 1;
 
-            let score = -self.negamax(position, -beta, -mut_alpha, depth - 1);
+            let score: i32 = if found_pv {
+                let val = -self.negamax(position, -mut_alpha - 1, -mut_alpha, depth);
+                if val > mut_alpha && val < beta {
+                    -self.negamax(position, -beta, -mut_alpha, depth - 1)
+                } else {
+                    val
+                }
+            } else {
+                -self.negamax(position, -beta, -mut_alpha, depth - 1)
+            };
 
             self.result.ply -= 1;
 
@@ -254,6 +265,8 @@ impl Evaluator {
             }
 
             if score > mut_alpha {
+                found_pv = true;
+
                 self.history_moves[m.piece as usize][m.to as usize] += depth as u32;
 
                 self.pv_table[self.result.ply as usize][self.result.ply as usize] = m;
