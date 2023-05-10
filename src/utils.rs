@@ -30,7 +30,7 @@ pub fn clear_bit(bitboard: &mut u64, bit_index: u8) {
     *bitboard &= !(1u64 << bit_index);
 }
 
-pub fn print_bitboard(bitboard: u64) {
+pub fn _print_bitboard(bitboard: u64) {
     for i in 0..64 {
         if i % 8 == 0 {
             println!();

@@ -828,7 +828,7 @@ impl Display for Move {
 
 impl Move {
     /// Returns the move in SAN notation
-    pub fn as_san(&self) -> String {
+    pub fn _as_san(&self) -> String {
         let piece_symbol = match self.piece {
             Piece::WhitePawn => "".to_string(),
             Piece::BlackPawn => "".to_string(),

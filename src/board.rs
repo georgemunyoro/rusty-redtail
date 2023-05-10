@@ -1,9 +1,7 @@
 use core::panic;
-use std::time::Instant;
 
 use crate::{
     chess,
-    movegen::MoveGenerator,
     utils::{self},
 };
 
@@ -1067,13 +1065,13 @@ impl Position {
         return occupancy;
     }
 
-    fn generate_magic_number(&mut self) -> u64 {
+    fn _generate_magic_number(&mut self) -> u64 {
         return utils::get_pseudorandom_number_u64(&mut self.rand_seed)
             & utils::get_pseudorandom_number_u64(&mut self.rand_seed)
             & utils::get_pseudorandom_number_u64(&mut self.rand_seed);
     }
 
-    fn find_magic_number(
+    fn _find_magic_number(
         &mut self,
         square: chess::Square,
         relevant_bits: u32,
@@ -1081,7 +1079,7 @@ impl Position {
     ) -> u64 {
         let mut occupancies: [u64; 4096] = [0u64; 4096];
         let mut attacks: [u64; 4096] = [0u64; 4096];
-        let mut used_attacks: Vec<u64> = vec![0u64; std::mem::size_of::<u64>() * 4096];
+        let mut _used_attacks: Vec<u64> = vec![0u64; std::mem::size_of::<u64>() * 4096];
 
         let attack_mask = if is_bishop {
             self.mask_bishop_attacks(square)
@@ -1101,13 +1099,13 @@ impl Position {
         }
 
         for _ in 0..10000000 {
-            let magic_number = self.generate_magic_number();
+            let magic_number = self._generate_magic_number();
             if utils::count_bits((attack_mask.wrapping_mul(magic_number)) & 0xFF00000000000000) < 6
             {
                 continue;
             }
 
-            used_attacks = vec![0u64; std::mem::size_of::<u64>() * 4096];
+            _used_attacks = vec![0u64; std::mem::size_of::<u64>() * 4096];
 
             let (mut index, mut fail): (u32, bool) = (0, false);
 
@@ -1115,9 +1113,9 @@ impl Position {
                 let magic_index = ((occupancies[index as usize].wrapping_mul(magic_number))
                     >> (64 - relevant_bits)) as usize;
 
-                if used_attacks[magic_index] == 0 {
-                    used_attacks[magic_index] = attacks[index as usize];
-                } else if used_attacks[magic_index] != attacks[index as usize] {
+                if _used_attacks[magic_index] == 0 {
+                    _used_attacks[magic_index] = attacks[index as usize];
+                } else if _used_attacks[magic_index] != attacks[index as usize] {
                     fail = true;
                 }
 
@@ -1132,13 +1130,13 @@ impl Position {
         return 0u64;
     }
 
-    fn initialize_magic_numbers(&mut self) {
+    fn _initialize_magic_numbers(&mut self) {
         println!("--------------------------------");
         println!("Generating magic numbers...");
         println!("--------------------------------\n");
 
         for square in chess::SQUARE_ITER {
-            let magic_number = self.find_magic_number(
+            let magic_number = self._find_magic_number(
                 square,
                 constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
                 false,
@@ -1150,7 +1148,7 @@ impl Position {
         println!("--------------------------------");
 
         for square in chess::SQUARE_ITER {
-            let magic_number = self.find_magic_number(
+            let magic_number = self._find_magic_number(
                 square,
                 constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
                 true,
@@ -1305,7 +1303,7 @@ mod tests {
         let mut board = Position::new(None);
 
         for square in chess::SQUARE_ITER {
-            let magic_number = board.find_magic_number(
+            let magic_number = board._find_magic_number(
                 square,
                 constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
                 false,
@@ -1318,7 +1316,7 @@ mod tests {
         }
 
         for square in chess::SQUARE_ITER {
-            let magic_number = board.find_magic_number(
+            let magic_number = board._find_magic_number(
                 square,
                 constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
                 true,
