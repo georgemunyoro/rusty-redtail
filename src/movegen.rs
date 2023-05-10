@@ -653,152 +653,22 @@ impl MoveGenerator for Position {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-
-    use serde::{Deserialize, Serialize};
-
-    use super::*;
-    use crate::board::Board;
-
-    #[derive(Serialize, Deserialize, Debug)]
-    struct TestStart {
-        fen: String,
-        description: String,
-    }
-
-    #[derive(Serialize, Deserialize, Debug)]
-    struct TestExpected {
-        fen: String,
-        r#move: String,
-    }
-
-    #[derive(Serialize, Deserialize, Debug)]
-    struct TestCase {
-        start: TestStart,
-        expected: Vec<TestExpected>,
-    }
-
-    #[derive(Serialize, Deserialize, Debug)]
-    struct TestData {
-        description: String,
-        test_cases: Vec<TestCase>,
-    }
+    use crate::{
+        board::{Board, Position},
+        chess,
+        movegen::MoveGenerator,
+    };
 
     #[test]
     fn test_starting_position_move_generation() {
         let mut board = Position::new(Some(String::from(chess::constants::STARTING_FEN).as_str()));
 
-        let moves = board.generate_moves();
-
-        let moves = board.generate_moves();
+        let moves = board.generate_legal_moves();
         assert_eq!(moves.len(), 20);
 
         // Also check black's moves
         board.turn = chess::Color::Black;
         let black_moves = board.generate_moves();
         assert_eq!(black_moves.len(), 20);
-    }
-
-    #[ignore]
-    #[test]
-    fn test_pawn_move_generation() {
-        let file = File::open("src/testdata/pawns.json").unwrap();
-        let test_data: TestData = serde_json::from_reader(file).unwrap();
-        println!("{:?}", test_data.description);
-
-        for test_case in test_data.test_cases {
-            let mut board = Position::new(Some(test_case.start.fen.as_str()));
-
-            println!("--------------------------------------------------------------------");
-            println!("{}", test_case.start.description);
-            println!("{}", test_case.start.fen);
-            println!("--------------------------------------------------------------------");
-
-            board.draw();
-
-            let moves = board.generate_moves();
-            assert_eq!(moves.len(), test_case.expected.len());
-
-            println!("--------------------------------------------------------------------");
-        }
-    }
-
-    #[ignore]
-    #[test]
-    fn test_basic_move_generation() {
-        let file = File::open("src/testdata/standard.json").unwrap();
-        let test_data: TestData = serde_json::from_reader(file).unwrap();
-        println!("{:?}", test_data.description);
-
-        for test_case in test_data.test_cases {
-            let mut board = Position::new(Some(test_case.start.fen.as_str()));
-
-            // println!("--------------------------------------------------------------------");
-            // println!("{}", test_case.start.description);
-            // println!("{}", test_case.start.fen);
-            // println!("--------------------------------------------------------------------");
-
-            board.draw();
-
-            let moves = board.generate_moves();
-            let san_moves: Vec<String> = moves.iter().map(|m| m.as_san()).collect();
-
-            for expected in test_case.expected {
-                let has_move = san_moves.contains(&expected.r#move);
-                if !has_move {
-                    println!(
-                        "--------------------------------------------------------------------"
-                    );
-                    println!("{} not found in {:?}", expected.r#move, san_moves);
-                    println!();
-                    println!("     TEST FEN: {}", test_case.start.fen);
-                    println!("GENERATED FEN: {}", board.as_fen());
-                    println!(
-                        "--------------------------------------------------------------------"
-                    );
-                }
-                assert!(has_move);
-            }
-
-            // assert_eq!(moves.len(), test_case.expected.len());
-
-            // println!("--------------------------------------------------------------------");
-        }
-    }
-
-    #[derive(Serialize, Deserialize, Debug)]
-    struct RandomTest {
-        fen: String,
-        expected: u32,
-    }
-
-    #[ignore]
-    #[test]
-    fn test_randoms() {
-        let file = File::open("src/testdata/randoms.json").unwrap();
-        let test_data: Vec<RandomTest> = serde_json::from_reader(file).unwrap();
-
-        for test_case in test_data {
-            let mut board = Position::new(Some(test_case.fen.as_str()));
-            let moves = board.generate_legal_moves();
-
-            if moves.len() != test_case.expected as usize {
-                // if board.as_fen().trim() != test_case.fen.trim() {
-                println!("--------------------------------------------------------------------");
-                board.draw();
-                println!(
-                    "{} moves found, expected {}",
-                    moves.len(),
-                    test_case.expected
-                );
-                println!();
-                println!("     TEST FEN: {}", test_case.fen);
-                println!("GENERATED FEN: {}", board.as_fen());
-                println!("--------------------------------------------------------------------");
-            }
-
-            // assert_eq!(test_case.fen.trim(), board.as_fen().trim());
-            assert_eq!(moves.len(), test_case.expected as usize);
-        }
     }
 }

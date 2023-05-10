@@ -37,6 +37,21 @@ static KING_POSITIONAL_SCORE: [i32; 64] = [
     0, -15, 0, 10, 0,
 ];
 
+static MVV_LVA: [[u32; 12]; 12] = [
+    [105, 205, 305, 405, 505, 605, 105, 205, 305, 405, 505, 605],
+    [104, 204, 304, 404, 504, 604, 104, 204, 304, 404, 504, 604],
+    [103, 203, 303, 403, 503, 603, 103, 203, 303, 403, 503, 603],
+    [102, 202, 302, 402, 502, 602, 102, 202, 302, 402, 502, 602],
+    [101, 201, 301, 401, 501, 601, 101, 201, 301, 401, 501, 601],
+    [100, 200, 300, 400, 500, 600, 100, 200, 300, 400, 500, 600],
+    [105, 205, 305, 405, 505, 605, 105, 205, 305, 405, 505, 605],
+    [104, 204, 304, 404, 504, 604, 104, 204, 304, 404, 504, 604],
+    [103, 203, 303, 403, 503, 603, 103, 203, 303, 403, 503, 603],
+    [102, 202, 302, 402, 502, 602, 102, 202, 302, 402, 502, 602],
+    [101, 201, 301, 401, 501, 601, 101, 201, 301, 401, 501, 601],
+    [100, 200, 300, 400, 500, 600, 100, 200, 300, 400, 500, 600],
+];
+
 static MIRROR_SCORE: [chess::Square; 64] = [
     chess::Square::A1,
     chess::Square::B1,
@@ -128,35 +143,95 @@ impl Evaluator {
             ply: 0,
             nodes: 0,
         };
+        position.draw();
         self.negamax(position, -50000, 50000, depth);
         return self.result.best_move;
     }
 
     pub fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: i32) -> i32 {
         if depth == 0 {
-            return self.evaluate(position);
+            return self.quiescence(position, alpha, beta);
         }
 
         self.result.nodes += 1;
 
         let mut mut_alpha = alpha.clone();
-        let mut best_move_so_far: Option<chess::Move> = None;
-
         let moves = position.generate_moves();
+        // self.order_moves(&mut moves);
+        let mut legal_move_count = 0;
 
         for m in moves {
-            self.result.ply += 1;
-
             let is_valid = position.make_move(m, false);
             if !is_valid {
-                self.result.ply -= 1;
                 continue;
             }
 
+            if self.result.ply == 0 {
+                println!("calculating move {}", m);
+            }
+
+            legal_move_count += 1;
+            self.result.ply += 1;
+
             let score = -self.negamax(position, -beta, -mut_alpha, depth - 1);
 
-            position.unmake_move();
             self.result.ply -= 1;
+
+            position.unmake_move();
+
+            if score >= beta {
+                return beta;
+            }
+
+            if score > mut_alpha {
+                mut_alpha = score;
+                if self.result.ply == 0 {
+                    self.result.best_move = Some(m);
+                    self.result.score = score;
+                    self.result.depth = depth;
+                }
+            }
+        }
+
+        if legal_move_count == 0 {
+            if position.is_in_check() {
+                return -49000 + self.result.ply;
+            } else {
+                return 0;
+            }
+        }
+
+        return mut_alpha;
+    }
+
+    pub fn quiescence(&mut self, position: &mut Position, alpha: i32, beta: i32) -> i32 {
+        let stand_pat = self.evaluate(position);
+        let mut mut_alpha = alpha.clone();
+
+        self.result.nodes += 1;
+
+        if stand_pat >= beta {
+            return beta;
+        }
+
+        if mut_alpha < stand_pat {
+            mut_alpha = stand_pat;
+        }
+
+        let moves = position.generate_moves();
+        // self.order_moves(&mut moves);
+
+        for m in moves {
+            let is_valid = position.make_move(m, true);
+            if !is_valid {
+                continue;
+            }
+
+            self.result.ply += 1;
+            let score = -self.quiescence(position, -beta, -alpha);
+            self.result.ply -= 1;
+
+            position.unmake_move();
 
             if score >= beta {
                 return beta;
@@ -164,18 +239,28 @@ impl Evaluator {
 
             if score > alpha {
                 mut_alpha = score;
-                if self.result.ply == 0 {
-                    best_move_so_far = Some(m);
-                }
-                self.result.depth = depth;
             }
         }
 
-        if mut_alpha != alpha {
-            self.result.best_move = best_move_so_far;
-        }
-
         return mut_alpha;
+    }
+
+    /// Returns a score for a move based on the Most Valuable Victim - Least Valuable Attacker heuristic.
+    pub fn get_move_mvv_lva(&mut self, m: chess::Move) -> u32 {
+        let value = match m.capture {
+            Some(c) => MVV_LVA[m.piece as usize][c as usize],
+            None => 0,
+        };
+
+        return value;
+    }
+
+    pub fn order_moves(&mut self, moves: &mut Vec<chess::Move>) {
+        moves.sort_by(|a, b| {
+            let a_value = self.get_move_mvv_lva(*a);
+            let b_value = self.get_move_mvv_lva(*b);
+            return b_value.cmp(&a_value);
+        });
     }
 
     pub fn get_piece_value(&mut self, piece: chess::Piece, square: usize) -> i32 {
@@ -265,5 +350,62 @@ impl Evaluator {
         } else {
             -score
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        board::{Board, Position},
+        evaluation::Evaluator,
+    };
+
+    #[test]
+    fn evaluates_correctly() {
+        let mut evaluator = Evaluator {
+            running: false,
+            transposition_table: std::collections::HashMap::new(),
+            result: crate::evaluation::PositionEvaluation {
+                score: 0,
+                best_move: None,
+                depth: 0,
+                ply: 0,
+                nodes: 0,
+            },
+        };
+        let mut board = Position::new(None);
+
+        board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == 0);
+
+        board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/1PPPPPPP/RNBQKBNR w KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == -100);
+
+        board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/3PPPPP/RNBQKBNR w KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == -300);
+
+        board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBNR w KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == -500);
+
+        board.set_fen("rnbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == 500);
+
+        board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RN1QKBNR w KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == -340);
+
+        board.set_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == 30);
+
+        board.set_fen("rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == 30);
+
+        board.set_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == 0);
+
+        board.set_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == 30);
+
+        board.set_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 0 1");
+        assert!(evaluator.evaluate(&mut board) == -30);
     }
 }

@@ -1,7 +1,5 @@
 use std::io::{self, BufRead};
 
-use rand::Rng;
-
 use crate::{
     board::{Board, Position},
     chess,
@@ -91,8 +89,6 @@ impl UCI {
                     };
 
                     let best_move = self.evaluator.get_best_move(&mut self.position, depth);
-                    // println!("{:?}", self.evaluator.result);
-                    // println!("bestmove {}", best_move.unwrap());
 
                     match best_move {
                         Some(best_move) => {
@@ -125,9 +121,11 @@ impl UCI {
                 "isready" => println!("readyok"),
                 "hash" => println!("0x{:016x}u64", self.position.hash),
                 "listmoves" => {
-                    let moves = self.position.generate_legal_moves();
+                    let mut moves = self.position.generate_legal_moves();
+                    println!();
+                    self.evaluator.order_moves(&mut moves);
                     for m in moves {
-                        println!("{}", m);
+                        println!("{} {}", m, self.evaluator.get_move_mvv_lva(m));
                     }
                 }
                 "evaluate" => {

@@ -1,12 +1,10 @@
 use core::panic;
-use std::{hash::Hasher, io::BufRead, time::Instant};
-
-use rand::Rng;
+use std::time::Instant;
 
 use crate::{
     chess,
-    movegen::{self, MoveGenerator},
-    utils::{self, clear_bit, print_bitboard},
+    movegen::MoveGenerator,
+    utils::{self},
 };
 
 mod constants {
@@ -219,8 +217,6 @@ pub trait Board {
     fn unmake_move(&mut self);
 
     fn as_fen(&self) -> String;
-
-    fn debug(&mut self);
 }
 
 impl Board for Position {
@@ -680,7 +676,7 @@ impl Board for Position {
 
             return true;
         } else {
-            match Some(m) {
+            match m.capture {
                 None => return false,
                 _ => return self.make_move(m, false),
             }
@@ -691,22 +687,6 @@ impl Board for Position {
         // pop the history entry and apply it
         let history_entry = self.position_stack.pop().unwrap();
         self.apply_history_entry(history_entry);
-    }
-
-    fn debug(&mut self) {
-        for i in 0..=5 {
-            self.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
-
-            let start = Instant::now();
-            let result = self.perft_divide(i);
-            let duration = start.elapsed();
-            let nodes_per_second = result as f64 / duration.as_secs_f64();
-
-            println!(
-                "perft {} - {} node(s) in {:?} - ({:.0}nps)\n",
-                i, result, duration, nodes_per_second
-            );
-        }
     }
 }
 
