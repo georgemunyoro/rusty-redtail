@@ -124,7 +124,7 @@ pub struct PositionEvaluation {
     pub score: i32,
     pub best_move: Option<chess::Move>,
     pub depth: u32,
-    pub ply: i32,
+    pub ply: u32,
     pub nodes: i32,
 }
 
@@ -134,6 +134,8 @@ pub struct Evaluator {
     pub result: PositionEvaluation,
     pub killer_moves: [[chess::Move; 64]; 2],
     pub history_moves: [[u32; 64]; 12],
+    pub pv_table: [[chess::Move; 64]; 64],
+    pub pv_length: [u32; 64],
 }
 
 impl Evaluator {
@@ -147,12 +149,16 @@ impl Evaluator {
         };
         self.killer_moves = [[chess::NULL_MOVE; 64]; 2];
         self.history_moves = [[0; 64]; 12];
+        self.pv_length = [0; 64];
+        self.pv_table = [[chess::NULL_MOVE; 64]; 64];
         position.draw();
         self.negamax(position, -50000, 50000, depth);
         return self.result.best_move;
     }
 
     pub fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: u32) -> i32 {
+        self.pv_length[self.result.ply as usize] = self.result.ply;
+
         if depth == 0 {
             return self.quiescence(position, alpha, beta);
         }
@@ -195,6 +201,15 @@ impl Evaluator {
             if score > mut_alpha {
                 self.history_moves[m.piece as usize][m.to as usize] += depth;
 
+                self.pv_table[self.result.ply as usize][self.result.ply as usize] = m;
+                for i in (self.result.ply + 1)..(self.pv_length[self.result.ply as usize + 1]) {
+                    self.pv_table[self.result.ply as usize][i as usize] =
+                        self.pv_table[self.result.ply as usize + 1][i as usize];
+                }
+
+                self.pv_length[self.result.ply as usize] =
+                    self.pv_length[self.result.ply as usize + 1];
+
                 mut_alpha = score;
                 if self.result.ply == 0 {
                     self.result.best_move = Some(m);
@@ -206,7 +221,7 @@ impl Evaluator {
 
         if legal_move_count == 0 {
             if position.is_in_check() {
-                return -49000 + self.result.ply;
+                return -49000 + (self.result.ply as i32);
             } else {
                 return 0;
             }
@@ -399,6 +414,8 @@ mod tests {
             },
             killer_moves: [[chess::NULL_MOVE; 64]; 2],
             history_moves: [[0; 64]; 12],
+            pv_length: [0; 64],
+            pv_table: [[chess::NULL_MOVE; 64]; 64],
         };
         let mut board = Position::new(None);
 

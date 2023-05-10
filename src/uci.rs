@@ -36,6 +36,8 @@ impl UCI {
                 },
                 killer_moves: [[chess::NULL_MOVE; 64]; 2],
                 history_moves: [[0; 64]; 12],
+                pv_length: [0; 64],
+                pv_table: [[chess::NULL_MOVE; 64]; 64],
             },
             running: true,
         };
@@ -94,12 +96,24 @@ impl UCI {
 
                     match best_move {
                         Some(best_move) => {
-                            println!(
+                            print!(
                                 "info score {} depth {} nodes {}",
                                 self.evaluator.result.score,
                                 self.evaluator.result.depth,
                                 self.evaluator.result.nodes
                             );
+
+                            let mut pv = String::new();
+                            for i in 0..self.evaluator.pv_length[0] {
+                                let pv_node = self.evaluator.pv_table[0][i as usize];
+                                if pv_node == chess::NULL_MOVE {
+                                    break;
+                                }
+                                pv.push_str(pv_node.to_string().as_str());
+                                pv.push_str(" ");
+                            }
+
+                            println!(" info pv {}", pv);
                             println!("bestmove {}", best_move);
                         }
                         None => {}
