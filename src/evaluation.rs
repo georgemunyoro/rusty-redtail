@@ -170,10 +170,24 @@ impl Evaluator {
             None => 5,
         };
 
-        for current_depth in 1..=depth {
+        let mut alpha = -50000;
+        let mut beta = 50000;
+
+        let mut current_depth = 1;
+
+        while current_depth <= depth {
             self.result.ply = 0;
 
-            self.negamax(position, -50000, 50000, current_depth);
+            let score = self.negamax(position, alpha, beta, current_depth);
+
+            if (score <= alpha) || (score >= beta) {
+                alpha = -50000;
+                beta = 50000;
+                continue;
+            }
+
+            alpha = score - 50;
+            beta = score + 50;
 
             match self.result.best_move {
                 None => {}
@@ -210,6 +224,8 @@ impl Evaluator {
                     println!(" info pv {}", pv);
                 }
             }
+
+            current_depth += 1;
         }
 
         return self.result.best_move;
