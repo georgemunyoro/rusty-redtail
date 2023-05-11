@@ -2,7 +2,7 @@ use core::panic;
 
 use crate::{
     chess,
-    utils::{self},
+    utils::{self, pop_lsb},
 };
 
 mod constants {
@@ -225,6 +225,7 @@ impl Board for Position {
         self.position_stack.push(history_entry);
 
         self.turn = !self.turn;
+        self.update_hash();
     }
 
     fn new(fen: Option<&str>) -> Position {
@@ -387,8 +388,9 @@ impl Board for Position {
             }
             print!("{} ", self.get_piece_at_square(i));
         }
-        // println!("\n\n{} to move\n", self.turn);
-        println!("\n\n{}\n", self.as_fen());
+        println!("\n\n{} to move", self.turn);
+        println!("{}", self.as_fen());
+        println!("HASH: {:016x}", self.hash);
     }
 
     /// Sets the board to the given FEN string
@@ -680,6 +682,7 @@ impl Board for Position {
             }
 
             self.turn = !self.turn;
+            self.update_hash();
 
             return true;
         } else {
@@ -694,17 +697,19 @@ impl Board for Position {
         // pop the history entry and apply it
         let history_entry = self.position_stack.pop().unwrap();
         self.apply_history_entry(history_entry);
+
+        self.update_hash();
     }
 }
 
 impl Position {
     pub fn update_hash(&mut self) {
         let mut hash: u64 = 0;
-        for piece in (chess::Piece::BlackPawn as usize)..=(chess::Piece::WhiteKing as usize) {
-            for square in 0..64 {
-                if utils::get_bit(self.bitboards[piece as usize], square) != 0 {
-                    hash ^= self.zobrist_piece_keys[piece as usize][square as usize];
-                }
+        for piece in 0..12 {
+            let mut bb = self.bitboards[piece];
+            while bb != 0 {
+                let square = pop_lsb(&mut bb);
+                hash ^= self.zobrist_piece_keys[piece][square as usize];
             }
         }
 
@@ -712,21 +717,7 @@ impl Position {
             hash ^= self.zobrist_enpassant_keys[self.enpassant.unwrap() as usize];
         }
 
-        if self.castling.white_king_side {
-            hash ^= self.zobrist_castling_keys[0];
-        }
-
-        if self.castling.white_queen_side {
-            hash ^= self.zobrist_castling_keys[1];
-        }
-
-        if self.castling.black_king_side {
-            hash ^= self.zobrist_castling_keys[2];
-        }
-
-        if self.castling.black_queen_side {
-            hash ^= self.zobrist_castling_keys[3];
-        }
+        hash ^= self.zobrist_castling_keys[usize::from(self.castling)];
 
         if self.turn == chess::Color::Black {
             hash ^= self.zobrist_turn_key;
@@ -738,7 +729,7 @@ impl Position {
     pub fn init_zorbrist_keys(&mut self) {
         self.rand_seed = 1804289383;
 
-        for piece in (chess::Piece::BlackPawn as usize)..=(chess::Piece::WhiteKing as usize) {
+        for piece in (chess::Piece::WhitePawn as usize)..=(chess::Piece::BlackKing as usize) {
             for square in 0..64 {
                 self.zobrist_piece_keys[piece as usize][square] =
                     utils::get_pseudorandom_number_u64(&mut self.rand_seed);

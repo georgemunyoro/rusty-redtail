@@ -598,19 +598,19 @@ impl From<Square> for i8 {
 /// Represents a chess piece
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Piece {
-    BlackPawn,
-    BlackKnight,
-    BlackBishop,
-    BlackRook,
-    BlackQueen,
-    BlackKing,
-
     WhitePawn,
     WhiteKnight,
     WhiteBishop,
     WhiteRook,
     WhiteQueen,
     WhiteKing,
+
+    BlackPawn,
+    BlackKnight,
+    BlackBishop,
+    BlackRook,
+    BlackQueen,
+    BlackKing,
 
     Empty,
 }
@@ -883,6 +883,30 @@ impl From<&str> for CastlingRights {
             black_king_side,
             black_queen_side,
         };
+    }
+}
+
+impl From<CastlingRights> for usize {
+    fn from(v: CastlingRights) -> Self {
+        let mut rights = 0;
+
+        if v.white_king_side {
+            rights |= 1 << 0;
+        }
+
+        if v.white_queen_side {
+            rights |= 1 << 1;
+        }
+
+        if v.black_king_side {
+            rights |= 1 << 2;
+        }
+
+        if v.black_queen_side {
+            rights |= 1 << 3;
+        }
+
+        return rights;
     }
 }
 

@@ -31,6 +31,18 @@ impl UCI {
                 history_moves: [[0; MAX_PLY]; 12],
                 pv_length: [0; MAX_PLY],
                 pv_table: [[chess::NULL_MOVE; MAX_PLY]; 64],
+                started_at: 0,
+                options: SearchOptions {
+                    depth: None,
+                    movetime: None,
+                    infinite: false,
+                    binc: None,
+                    winc: None,
+                    btime: None,
+                    wtime: None,
+                    movestogo: None,
+                },
+                tt: std::collections::HashMap::new(),
             },
             running: true,
         };
@@ -63,6 +75,11 @@ impl UCI {
                         depth: None,
                         movetime: None,
                         infinite: false,
+                        binc: None,
+                        winc: None,
+                        btime: None,
+                        wtime: None,
+                        movestogo: None,
                     };
 
                     for i in 1..tokens.len() {
@@ -75,6 +92,21 @@ impl UCI {
                             }
                             "infinite" => {
                                 options.infinite = true;
+                            }
+                            "binc" => {
+                                options.binc = Some(tokens[i + 1].parse::<u32>().unwrap());
+                            }
+                            "winc" => {
+                                options.winc = Some(tokens[i + 1].parse::<u32>().unwrap());
+                            }
+                            "btime" => {
+                                options.btime = Some(tokens[i + 1].parse::<u32>().unwrap());
+                            }
+                            "wtime" => {
+                                options.wtime = Some(tokens[i + 1].parse::<u32>().unwrap());
+                            }
+                            "movestogo" => {
+                                options.movestogo = Some(tokens[i + 1].parse::<u32>().unwrap());
                             }
                             _ => {}
                         }
@@ -108,7 +140,14 @@ impl UCI {
                 "draw" => self.position.draw(),
                 "ucinewgame" => self.position.set_fen(chess::constants::STARTING_FEN),
                 "isready" => println!("readyok"),
-                "hash" => println!("0x{:016x}u64", self.position.hash),
+                "hash" => {
+                    // self.position.update_hash();
+                    let mut hash = 0;
+                    hash ^= self.position.zobrist_piece_keys[chess::Piece::WhitePawn as usize]
+                        [chess::Square::A2 as usize];
+                    println!("{:016x}", hash);
+                }
+                "update:hash" => self.position.update_hash(),
                 "listmoves" => {
                     let mut moves = self.position.generate_legal_moves();
                     println!();

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ptr::null};
+use std::collections::HashMap;
 
 use crate::{
     board::{Board, Position},
@@ -135,6 +135,26 @@ pub struct SearchOptions {
     pub depth: Option<u8>,
     pub movetime: Option<u32>,
     pub infinite: bool,
+    pub wtime: Option<u32>,
+    pub btime: Option<u32>,
+    pub winc: Option<u32>,
+    pub binc: Option<u32>,
+    pub movestogo: Option<u32>,
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub enum TTEntryFlag {
+    EXACT,
+    BETA,
+    ALPHA,
+}
+
+#[derive(Debug)]
+pub struct TTEntry {
+    pub key: u64,
+    pub depth: u8,
+    pub flags: TTEntryFlag,
+    pub value: i32,
 }
 
 pub struct Evaluator {
@@ -145,6 +165,9 @@ pub struct Evaluator {
     pub history_moves: [[u32; MAX_PLY]; 12],
     pub pv_table: [[chess::Move; MAX_PLY]; MAX_PLY],
     pub pv_length: [u32; MAX_PLY],
+    pub started_at: u128,
+    pub options: SearchOptions,
+    pub tt: HashMap<u64, TTEntry>,
 }
 
 impl Evaluator {
@@ -164,10 +187,11 @@ impl Evaluator {
         self.history_moves = [[0; MAX_PLY]; 12];
         self.pv_length = [0; MAX_PLY];
         self.pv_table = [[chess::NULL_MOVE; MAX_PLY]; MAX_PLY];
+        self.tt.clear();
 
         let depth = match options.depth {
             Some(depth) => depth as u8,
-            None => 5,
+            None => MAX_PLY as u8,
         };
 
         let mut alpha = -50000;
@@ -175,19 +199,33 @@ impl Evaluator {
 
         let mut current_depth = 1;
 
+        self.options = options;
+        self.running = true;
+        self.started_at = self.get_time_ms();
+
         while current_depth <= depth {
             self.result.ply = 0;
+            let start_time = self.get_time_ms();
 
             let score = self.negamax(position, alpha, beta, current_depth);
 
             if (score <= alpha) || (score >= beta) {
                 alpha = -50000;
                 beta = 50000;
+                // println!("readjusting asp window");
                 continue;
             }
 
             alpha = score - 50;
             beta = score + 50;
+
+            if !self.running {
+                break;
+            }
+
+            let stop_time = self.get_time_ms();
+            let nps =
+                (self.result.nodes as f64 / ((stop_time - start_time) as f64 / 1000.0)) as i32;
 
             match self.result.best_move {
                 None => {}
@@ -205,11 +243,12 @@ impl Evaluator {
                     }
 
                     print!(
-                        "info score {} {} depth {} nodes {}",
+                        "info score {} {} depth {} nodes {} nps {}",
                         if is_mate { "mate" } else { "cp" },
                         if is_mate { mate_in } else { self.result.score },
                         self.result.depth,
-                        self.result.nodes
+                        self.result.nodes,
+                        nps
                     );
 
                     let mut pv = String::new();
@@ -231,6 +270,43 @@ impl Evaluator {
         return self.result.best_move;
     }
 
+    fn check_time(&mut self) -> bool {
+        if self.options.infinite {
+            return true;
+        }
+
+        let elapsed = self.get_time_ms() - self.started_at;
+
+        match self.options.movetime {
+            Some(movetime) => {
+                if elapsed >= movetime as u128 {
+                    return false;
+                }
+            }
+            None => {}
+        }
+
+        match self.options.wtime {
+            Some(wtime) => {
+                if elapsed >= wtime as u128 {
+                    return false;
+                }
+            }
+            None => {}
+        }
+
+        match self.options.btime {
+            Some(btime) => {
+                if elapsed >= btime as u128 {
+                    return false;
+                }
+            }
+            None => {}
+        }
+
+        return true;
+    }
+
     fn _has_non_pawn_material(&self, position: &mut Position) -> bool {
         if position.turn == chess::Color::White {
             (position.bitboards[chess::Piece::WhiteBishop as usize]
@@ -247,11 +323,56 @@ impl Evaluator {
         }
     }
 
+    fn get_time_ms(&self) -> u128 {
+        let now = std::time::SystemTime::now();
+        let since_the_epoch = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards");
+        return since_the_epoch.as_millis();
+    }
+
     pub fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: u8) -> i32 {
+        if self.result.nodes & 2047 == 0 {
+            self.running = self.check_time();
+        }
+
+        let tt_entry = self.tt.get(&position.hash);
+
+        match tt_entry {
+            None => {}
+            Some(tt_entry) => {
+                if tt_entry.depth >= depth {
+                    if tt_entry.flags == TTEntryFlag::EXACT {
+                        return tt_entry.value;
+                    }
+
+                    if tt_entry.flags == TTEntryFlag::ALPHA && tt_entry.value <= alpha {
+                        return alpha;
+                    }
+
+                    if tt_entry.flags == TTEntryFlag::BETA && tt_entry.value >= beta {
+                        return beta;
+                    }
+                }
+            }
+        }
+
+        let mut hashf = TTEntryFlag::ALPHA;
+
         self.pv_length[self.result.ply as usize] = self.result.ply;
 
         if depth == 0 {
-            return self.quiescence(position, alpha, beta);
+            let eval = self.quiescence(position, alpha, beta);
+            self.tt.insert(
+                position.hash,
+                TTEntry {
+                    key: position.hash,
+                    depth: depth,
+                    flags: TTEntryFlag::EXACT,
+                    value: eval,
+                },
+            );
+            return eval;
         }
 
         if depth >= 3 && !position.is_in_check() && self.result.ply > 0 {
@@ -307,6 +428,10 @@ impl Evaluator {
 
             position.unmake_move();
 
+            if !self.running {
+                return 0;
+            }
+
             if score >= beta {
                 match m.capture {
                     None => {
@@ -317,11 +442,22 @@ impl Evaluator {
                     _ => {}
                 }
 
+                self.tt.insert(
+                    position.hash,
+                    TTEntry {
+                        key: position.hash,
+                        depth: depth,
+                        flags: TTEntryFlag::BETA,
+                        value: beta,
+                    },
+                );
+
                 return beta;
             }
 
             if score > mut_alpha {
                 found_pv = true;
+                hashf = TTEntryFlag::EXACT;
 
                 self.history_moves[m.piece as usize][m.to as usize] += depth as u32;
 
@@ -351,10 +487,24 @@ impl Evaluator {
             }
         }
 
+        self.tt.insert(
+            position.hash,
+            TTEntry {
+                key: position.hash,
+                depth: depth,
+                flags: hashf,
+                value: mut_alpha,
+            },
+        );
+
         return mut_alpha;
     }
 
     pub fn quiescence(&mut self, position: &mut Position, alpha: i32, beta: i32) -> i32 {
+        if self.result.nodes & 2047 == 0 {
+            self.running = self.check_time();
+        }
+
         self.result.nodes += 1;
 
         let mut mut_alpha = alpha.clone();
@@ -385,6 +535,10 @@ impl Evaluator {
             self.result.ply -= 1;
 
             position.unmake_move();
+
+            if !self.running {
+                return 0;
+            }
 
             if score >= beta {
                 return beta;
@@ -546,6 +700,18 @@ mod tests {
             history_moves: [[0; 64]; 12],
             pv_length: [0; 64],
             pv_table: [[chess::NULL_MOVE; 64]; 64],
+            started_at: 0,
+            options: crate::evaluation::SearchOptions {
+                depth: None,
+                movetime: None,
+                infinite: false,
+                wtime: None,
+                btime: None,
+                winc: None,
+                binc: None,
+                movestogo: None,
+            },
+            tt: std::collections::HashMap::new(),
         };
         let mut board = Position::new(None);
 
