@@ -50,148 +50,149 @@ impl UCI {
         return uci;
     }
 
+    pub fn handle_uci_input(&mut self, line: String) {
+        let tokens = Iterator::collect::<Vec<&str>>(line.split_whitespace());
+
+        if tokens.len() == 0 {
+            return;
+        };
+
+        match tokens[0] {
+            "uci" => {
+                println!("id name redtail_vx");
+                println!("id author George T.G. Munyoro");
+                println!("uciok");
+            }
+            "go" => {
+                // store go command options
+                let mut options = SearchOptions {
+                    depth: None,
+                    movetime: None,
+                    infinite: false,
+                    binc: None,
+                    winc: None,
+                    btime: None,
+                    wtime: None,
+                    movestogo: None,
+                };
+
+                for i in 1..tokens.len() {
+                    match tokens[i] {
+                        "depth" => {
+                            options.depth = Some(tokens[i + 1].parse::<u8>().unwrap());
+                        }
+                        "movetime" => {
+                            options.movetime = Some(tokens[i + 1].parse::<u32>().unwrap());
+                        }
+                        "infinite" => {
+                            options.infinite = true;
+                        }
+                        "binc" => {
+                            options.binc = Some(tokens[i + 1].parse::<u32>().unwrap());
+                        }
+                        "winc" => {
+                            options.winc = Some(tokens[i + 1].parse::<u32>().unwrap());
+                        }
+                        "btime" => {
+                            options.btime = Some(tokens[i + 1].parse::<u32>().unwrap());
+                        }
+                        "wtime" => {
+                            options.wtime = Some(tokens[i + 1].parse::<u32>().unwrap());
+                        }
+                        "movestogo" => {
+                            options.movestogo = Some(tokens[i + 1].parse::<u32>().unwrap());
+                        }
+                        _ => {}
+                    }
+                }
+
+                let best_move = self.evaluator.get_best_move(&mut self.position, options);
+
+                match best_move {
+                    Some(best_move) => {
+                        println!("bestmove {}", best_move);
+                    }
+                    None => {}
+                }
+            }
+            "stop" => match self.evaluator.result.best_move {
+                Some(best_move) => {
+                    println!("bestmove {}", best_move);
+                }
+                None => {
+                    println!("bestmove {}", chess::NULL_MOVE);
+                }
+            },
+            "perft" => {
+                let depth = tokens[1].parse::<u8>().unwrap();
+                let nodes = self.position.perft(depth);
+
+                println!("Nodes: {}", nodes);
+            }
+            "position" => self.handle_position_command(tokens),
+            "quit" => self.stop(),
+            "draw" => self.position.draw(),
+            "ucinewgame" => self.position.set_fen(chess::constants::STARTING_FEN),
+            "isready" => println!("readyok"),
+            "hash" => {
+                // self.position.update_hash();
+                let mut hash = 0;
+                hash ^= self.position.zobrist_piece_keys[chess::Piece::WhitePawn as usize]
+                    [chess::Square::A2 as usize];
+                println!("{:016x}", hash);
+            }
+            "update:hash" => self.position.update_hash(),
+            "listmoves" => {
+                let mut moves = self.position.generate_legal_moves();
+                println!();
+                self.evaluator.order_moves(&mut moves, false);
+                for m in moves {
+                    println!("{} {}", m, self.evaluator.get_move_mvv_lva(m, false));
+                }
+            }
+            "evaluate" => {
+                self.evaluator.result = crate::evaluation::PositionEvaluation {
+                    score: 0,
+                    best_move: None,
+                    depth: 0,
+                    ply: 0,
+                    nodes: 0,
+                };
+                let moves = self.position.generate_moves();
+                // println!("{}", self.evaluator.evaluate(&mut self.position));
+                for m in moves {
+                    let is_valid = self.position.make_move(m, false);
+                    if !is_valid {
+                        continue;
+                    }
+
+                    let score = -self
+                        .evaluator
+                        .negamax(&mut self.position, -1000000, 1000000, 4);
+                    self.position.unmake_move();
+
+                    println!("{} {}", m, score);
+                }
+                self.evaluator.result = crate::evaluation::PositionEvaluation {
+                    score: 0,
+                    best_move: None,
+                    depth: 0,
+                    ply: 0,
+                    nodes: 0,
+                };
+            }
+            _ => {
+                println!("Unknown command: {}", tokens[0]);
+            }
+        }
+    }
+
     pub fn uci_loop(&mut self) {
         while self.running {
             let stdin = io::stdin();
             let mut line = String::new();
-
             stdin.lock().read_line(&mut line).unwrap();
-
-            let tokens = Iterator::collect::<Vec<&str>>(line.split_whitespace());
-
-            if tokens.len() == 0 {
-                continue;
-            };
-
-            match tokens[0] {
-                "uci" => {
-                    println!("id name redtail_vx");
-                    println!("id author George T.G. Munyoro");
-                    println!("uciok");
-                }
-                "go" => {
-                    // store go command options
-                    let mut options = SearchOptions {
-                        depth: None,
-                        movetime: None,
-                        infinite: false,
-                        binc: None,
-                        winc: None,
-                        btime: None,
-                        wtime: None,
-                        movestogo: None,
-                    };
-
-                    for i in 1..tokens.len() {
-                        match tokens[i] {
-                            "depth" => {
-                                options.depth = Some(tokens[i + 1].parse::<u8>().unwrap());
-                            }
-                            "movetime" => {
-                                options.movetime = Some(tokens[i + 1].parse::<u32>().unwrap());
-                            }
-                            "infinite" => {
-                                options.infinite = true;
-                            }
-                            "binc" => {
-                                options.binc = Some(tokens[i + 1].parse::<u32>().unwrap());
-                            }
-                            "winc" => {
-                                options.winc = Some(tokens[i + 1].parse::<u32>().unwrap());
-                            }
-                            "btime" => {
-                                options.btime = Some(tokens[i + 1].parse::<u32>().unwrap());
-                            }
-                            "wtime" => {
-                                options.wtime = Some(tokens[i + 1].parse::<u32>().unwrap());
-                            }
-                            "movestogo" => {
-                                options.movestogo = Some(tokens[i + 1].parse::<u32>().unwrap());
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    let best_move = self.evaluator.get_best_move(&mut self.position, options);
-
-                    match best_move {
-                        Some(best_move) => {
-                            println!("bestmove {}", best_move);
-                        }
-                        None => {}
-                    }
-                }
-                "stop" => match self.evaluator.result.best_move {
-                    Some(best_move) => {
-                        println!("bestmove {}", best_move);
-                    }
-                    None => {
-                        println!("bestmove {}", chess::NULL_MOVE);
-                    }
-                },
-                "perft" => {
-                    let depth = tokens[1].parse::<u8>().unwrap();
-                    let nodes = self.position.perft(depth);
-
-                    println!("Nodes: {}", nodes);
-                }
-                "position" => self.handle_position_command(tokens),
-                "quit" => self.stop(),
-                "draw" => self.position.draw(),
-                "ucinewgame" => self.position.set_fen(chess::constants::STARTING_FEN),
-                "isready" => println!("readyok"),
-                "hash" => {
-                    // self.position.update_hash();
-                    let mut hash = 0;
-                    hash ^= self.position.zobrist_piece_keys[chess::Piece::WhitePawn as usize]
-                        [chess::Square::A2 as usize];
-                    println!("{:016x}", hash);
-                }
-                "update:hash" => self.position.update_hash(),
-                "listmoves" => {
-                    let mut moves = self.position.generate_legal_moves();
-                    println!();
-                    self.evaluator.order_moves(&mut moves, false);
-                    for m in moves {
-                        println!("{} {}", m, self.evaluator.get_move_mvv_lva(m, false));
-                    }
-                }
-                "evaluate" => {
-                    self.evaluator.result = crate::evaluation::PositionEvaluation {
-                        score: 0,
-                        best_move: None,
-                        depth: 0,
-                        ply: 0,
-                        nodes: 0,
-                    };
-                    let moves = self.position.generate_moves();
-                    // println!("{}", self.evaluator.evaluate(&mut self.position));
-                    for m in moves {
-                        let is_valid = self.position.make_move(m, false);
-                        if !is_valid {
-                            continue;
-                        }
-
-                        let score =
-                            -self
-                                .evaluator
-                                .negamax(&mut self.position, -1000000, 1000000, 4);
-                        self.position.unmake_move();
-
-                        println!("{} {}", m, score);
-                    }
-                    self.evaluator.result = crate::evaluation::PositionEvaluation {
-                        score: 0,
-                        best_move: None,
-                        depth: 0,
-                        ply: 0,
-                        nodes: 0,
-                    };
-                }
-                _ => {
-                    println!("Unknown command: {}", tokens[0]);
-                }
-            }
+            self.handle_uci_input(line);
         }
     }
 
