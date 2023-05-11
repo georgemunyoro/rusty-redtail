@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ptr::null};
 
 use crate::{
     board::{Board, Position},
@@ -171,7 +171,6 @@ impl Evaluator {
         };
 
         for current_depth in 1..=depth {
-            // self.result.nodes = 0;
             self.result.ply = 0;
 
             self.negamax(position, -50000, 50000, current_depth);
@@ -179,9 +178,24 @@ impl Evaluator {
             match self.result.best_move {
                 None => {}
                 _ => {
+                    let is_mate = self.result.score > 48000;
+                    let mut mate_in: i32 = 0;
+
+                    if is_mate {
+                        let x = -(self.result.score - 49000);
+                        if x % 2 == 0 {
+                            mate_in = x as i32 / 2;
+                        } else {
+                            mate_in = (x as i32 + 1) / 2;
+                        }
+                    }
+
                     print!(
-                        "info score {} depth {} nodes {}",
-                        self.result.score, self.result.depth, self.result.nodes
+                        "info score {} {} depth {} nodes {}",
+                        if is_mate { "mate" } else { "cp" },
+                        if is_mate { mate_in } else { self.result.score },
+                        self.result.depth,
+                        self.result.nodes
                     );
 
                     let mut pv = String::new();
@@ -201,11 +215,37 @@ impl Evaluator {
         return self.result.best_move;
     }
 
+    fn _has_non_pawn_material(&self, position: &mut Position) -> bool {
+        if position.turn == chess::Color::White {
+            (position.bitboards[chess::Piece::WhiteBishop as usize]
+                + position.bitboards[chess::Piece::WhiteKnight as usize]
+                + position.bitboards[chess::Piece::WhiteRook as usize]
+                + position.bitboards[chess::Piece::WhiteQueen as usize])
+                != 0
+        } else {
+            (position.bitboards[chess::Piece::BlackBishop as usize]
+                + position.bitboards[chess::Piece::BlackKnight as usize]
+                + position.bitboards[chess::Piece::BlackRook as usize]
+                + position.bitboards[chess::Piece::BlackQueen as usize])
+                != 0
+        }
+    }
+
     pub fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: u8) -> i32 {
         self.pv_length[self.result.ply as usize] = self.result.ply;
 
         if depth == 0 {
             return self.quiescence(position, alpha, beta);
+        }
+
+        if depth >= 3 && !position.is_in_check() && self.result.ply > 0 {
+            position.make_null_move();
+            let null_move_value = -self.negamax(position, -beta, -beta + 1, depth - 1 - 2);
+            position.unmake_move();
+
+            if null_move_value >= beta {
+                return beta;
+            }
         }
 
         if self.result.ply > (MAX_PLY as u32) {

@@ -213,11 +213,20 @@ pub trait Board {
 
     fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool;
     fn unmake_move(&mut self);
+    fn make_null_move(&mut self);
 
     fn as_fen(&self) -> String;
 }
 
 impl Board for Position {
+    fn make_null_move(&mut self) {
+        // add the move to the history
+        let history_entry = self.to_history_entry();
+        self.position_stack.push(history_entry);
+
+        self.turn = !self.turn;
+    }
+
     fn new(fen: Option<&str>) -> Position {
         let mut pos = Position {
             bitboards: [0; 12],
