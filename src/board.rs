@@ -206,7 +206,7 @@ pub struct HistoryEntry {
 pub trait Board {
     fn new(fen: Option<&str>) -> Position;
     fn draw(&mut self);
-    fn set_fen(&mut self, fen: &str);
+    fn set_fen(&mut self, fen: String);
     fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool;
 
     fn is_in_check(&self) -> bool;
@@ -282,7 +282,7 @@ impl Board for Position {
         pos.update_hash();
 
         match fen {
-            Some(p) => Position::set_fen(&mut pos, p),
+            Some(p) => Position::set_fen(&mut pos, String::from(p)),
             None => {}
         }
 
@@ -394,7 +394,7 @@ impl Board for Position {
     }
 
     /// Sets the board to the given FEN string
-    fn set_fen(&mut self, fen: &str) {
+    fn set_fen(&mut self, fen: String) {
         // Split the fen
         let sections = fen.split(' ').collect::<Vec<&str>>();
 
