@@ -6,6 +6,7 @@ mod evaluation;
 mod movegen;
 mod uci;
 mod utils;
+mod tt;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

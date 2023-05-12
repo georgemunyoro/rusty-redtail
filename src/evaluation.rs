@@ -1,11 +1,10 @@
 use std::sync::{Arc, Mutex};
 
-use fxhash::FxHashMap;
-
 use crate::{
     board::{Board, Position},
     chess,
     movegen::MoveGenerator,
+    tt::{self, TranspositionTable},
     utils,
 };
 
@@ -162,21 +161,6 @@ impl SearchOptions {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub enum TTEntryFlag {
-    EXACT,
-    BETA,
-    ALPHA,
-}
-
-#[derive(Debug)]
-pub struct TTEntry {
-    pub key: u64,
-    pub depth: u8,
-    pub flags: TTEntryFlag,
-    pub value: i32,
-}
-
 pub struct Evaluator {
     pub running: Arc<Mutex<bool>>,
     pub result: PositionEvaluation,
@@ -186,7 +170,7 @@ pub struct Evaluator {
     pub pv_length: [u32; MAX_PLY],
     pub started_at: u128,
     pub options: SearchOptions,
-    pub tt: FxHashMap<u64, TTEntry>,
+    pub tt: TranspositionTable,
 }
 
 impl Evaluator {
@@ -225,7 +209,7 @@ impl Evaluator {
                 wtime: None,
                 movestogo: None,
             },
-            tt: FxHashMap::default(),
+            tt: TranspositionTable::new(),
         };
     }
 
@@ -378,7 +362,7 @@ impl Evaluator {
         return true;
     }
 
-    fn _has_non_pawn_material(&self, position: &mut Position) -> bool {
+    fn has_non_pawn_material(&self, position: &mut Position) -> bool {
         if position.turn == chess::Color::White {
             (position.bitboards[chess::Piece::WhiteBishop as usize]
                 + position.bitboards[chess::Piece::WhiteKnight as usize]
@@ -407,46 +391,31 @@ impl Evaluator {
             self.set_running(self.check_time());
         }
 
-        let tt_entry = self.tt.get(&position.hash);
-
-        match tt_entry {
-            None => {}
-            Some(tt_entry) => {
-                if tt_entry.depth >= depth {
-                    if tt_entry.flags == TTEntryFlag::EXACT {
-                        return tt_entry.value;
-                    }
-
-                    if tt_entry.flags == TTEntryFlag::ALPHA && tt_entry.value <= alpha {
-                        return alpha;
-                    }
-
-                    if tt_entry.flags == TTEntryFlag::BETA && tt_entry.value >= beta {
-                        return beta;
-                    }
-                }
-            }
+        if let Some(stored_value) = self.tt.probe(position.hash, depth, alpha, beta) {
+            return stored_value;
         }
 
-        let mut hashf = TTEntryFlag::ALPHA;
+        let mut transposition_hash_flag = tt::TranspositionTableEntryFlag::ALPHA;
 
         self.pv_length[self.result.ply as usize] = self.result.ply;
 
         if depth == 0 {
             let eval = self.quiescence(position, alpha, beta);
-            self.tt.insert(
+
+            self.tt.save(
                 position.hash,
-                TTEntry {
-                    key: position.hash,
-                    depth: depth,
-                    flags: TTEntryFlag::EXACT,
-                    value: eval,
-                },
+                depth,
+                tt::TranspositionTableEntryFlag::EXACT,
+                eval,
             );
             return eval;
         }
 
-        if depth >= 3 && !position.is_in_check() && self.result.ply > 0 {
+        if depth >= 3
+            && !position.is_in_check()
+            && self.result.ply > 0
+            && self.has_non_pawn_material(position)
+        {
             position.make_null_move();
             let null_move_value = -self.negamax(position, -beta, -beta + 1, depth - 1 - 2);
             position.unmake_move();
@@ -462,19 +431,16 @@ impl Evaluator {
 
         self.result.nodes += 1;
 
-        let mut mut_alpha = alpha.clone();
+        let mut alpha_mut = alpha.clone();
         let mut moves = position.generate_moves();
 
-        // check if following pv line
         let is_following_pv_line = moves
             .iter()
             .any(|&m| m == self.pv_table[0][self.result.ply as usize]);
-
         self.order_moves(&mut moves, is_following_pv_line);
+
         let mut legal_move_count = 0;
-
         let mut found_pv = false;
-
         let mut moves_searched = 0;
 
         for m in moves {
@@ -487,15 +453,15 @@ impl Evaluator {
             self.result.ply += 1;
 
             let score: i32 = if found_pv {
-                let val = -self.negamax(position, -mut_alpha - 1, -mut_alpha, depth);
-                if val > mut_alpha && val < beta {
-                    -self.negamax(position, -beta, -mut_alpha, depth - 1)
+                let val = -self.negamax(position, -alpha_mut - 1, -alpha_mut, depth);
+                if val > alpha_mut && val < beta {
+                    -self.negamax(position, -beta, -alpha_mut, depth - 1)
                 } else {
                     val
                 }
             } else {
                 if moves_searched == 0 {
-                    -self.negamax(position, -beta, -mut_alpha, depth - 1)
+                    -self.negamax(position, -beta, -alpha_mut, depth - 1)
                 } else {
                     // LMR
                     let mut lmr_score = if moves_searched > FULL_DEPTH_MOVES
@@ -504,16 +470,16 @@ impl Evaluator {
                         && m.capture == None
                         && m.promotion == None
                     {
-                        -self.negamax(position, -mut_alpha - 1, -mut_alpha, depth - 2)
+                        -self.negamax(position, -alpha_mut - 1, -alpha_mut, depth - 2)
                     } else {
-                        mut_alpha + 1
+                        alpha_mut + 1
                     };
 
-                    if lmr_score > mut_alpha {
-                        lmr_score = -self.negamax(position, -mut_alpha - 1, -mut_alpha, depth - 1);
+                    if lmr_score > alpha_mut {
+                        lmr_score = -self.negamax(position, -alpha_mut - 1, -alpha_mut, depth - 1);
 
-                        if lmr_score > mut_alpha && lmr_score < beta {
-                            lmr_score = -self.negamax(position, -beta, -mut_alpha, depth - 1);
+                        if lmr_score > alpha_mut && lmr_score < beta {
+                            lmr_score = -self.negamax(position, -beta, -alpha_mut, depth - 1);
                         }
                     }
 
@@ -541,22 +507,20 @@ impl Evaluator {
                     _ => {}
                 }
 
-                self.tt.insert(
+                self.tt.save(
                     position.hash,
-                    TTEntry {
-                        key: position.hash,
-                        depth: depth,
-                        flags: TTEntryFlag::BETA,
-                        value: beta,
-                    },
+                    depth,
+                    tt::TranspositionTableEntryFlag::BETA,
+                    beta,
                 );
 
                 return beta;
             }
 
-            if score > mut_alpha {
+            if score > alpha_mut {
                 found_pv = true;
-                hashf = TTEntryFlag::EXACT;
+
+                transposition_hash_flag = tt::TranspositionTableEntryFlag::EXACT;
 
                 self.history_moves[m.piece as usize][m.to as usize] += depth as u32;
 
@@ -569,7 +533,7 @@ impl Evaluator {
                 self.pv_length[self.result.ply as usize] =
                     self.pv_length[self.result.ply as usize + 1];
 
-                mut_alpha = score;
+                alpha_mut = score;
                 if self.result.ply == 0 {
                     self.result.best_move = Some(m);
                     self.result.score = score;
@@ -586,17 +550,10 @@ impl Evaluator {
             }
         }
 
-        self.tt.insert(
-            position.hash,
-            TTEntry {
-                key: position.hash,
-                depth: depth,
-                flags: hashf,
-                value: mut_alpha,
-            },
-        );
+        self.tt
+            .save(position.hash, depth, transposition_hash_flag, alpha_mut);
 
-        return mut_alpha;
+        return alpha_mut;
     }
 
     fn quiescence(&mut self, position: &mut Position, alpha: i32, beta: i32) -> i32 {
