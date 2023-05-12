@@ -1,7 +1,6 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
+
+use fxhash::FxHashMap;
 
 use crate::{
     board::{Board, Position},
@@ -180,7 +179,6 @@ pub struct TTEntry {
 
 pub struct Evaluator {
     pub running: Arc<Mutex<bool>>,
-    pub transposition_table: HashMap<u64, PositionEvaluation>,
     pub result: PositionEvaluation,
     pub killer_moves: [[chess::Move; MAX_PLY]; 2],
     pub history_moves: [[u32; MAX_PLY]; 12],
@@ -188,7 +186,7 @@ pub struct Evaluator {
     pub pv_length: [u32; MAX_PLY],
     pub started_at: u128,
     pub options: SearchOptions,
-    pub tt: HashMap<u64, TTEntry>,
+    pub tt: FxHashMap<u64, TTEntry>,
 }
 
 impl Evaluator {
@@ -205,7 +203,6 @@ impl Evaluator {
     pub fn new() -> Evaluator {
         return Evaluator {
             running: Arc::new(Mutex::new(false)),
-            transposition_table: HashMap::new(),
             result: PositionEvaluation {
                 score: 0,
                 best_move: None,
@@ -228,7 +225,7 @@ impl Evaluator {
                 wtime: None,
                 movestogo: None,
             },
-            tt: HashMap::new(),
+            tt: FxHashMap::default(),
         };
     }
 
