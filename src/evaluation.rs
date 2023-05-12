@@ -171,6 +171,36 @@ pub struct Evaluator {
 }
 
 impl Evaluator {
+    pub fn new() -> Evaluator {
+        return Evaluator {
+            running: false,
+            transposition_table: HashMap::new(),
+            result: PositionEvaluation {
+                score: 0,
+                best_move: None,
+                depth: 0,
+                ply: 0,
+                nodes: 0,
+            },
+            killer_moves: [[chess::NULL_MOVE; MAX_PLY]; 2],
+            history_moves: [[0; MAX_PLY]; 12],
+            pv_length: [0; MAX_PLY],
+            pv_table: [[chess::NULL_MOVE; MAX_PLY]; MAX_PLY],
+            started_at: 0,
+            options: SearchOptions {
+                depth: None,
+                movetime: None,
+                infinite: false,
+                binc: None,
+                winc: None,
+                btime: None,
+                wtime: None,
+                movestogo: None,
+            },
+            tt: HashMap::new(),
+        };
+    }
+
     pub fn get_best_move(
         &mut self,
         position: &mut Position,
@@ -658,7 +688,7 @@ impl Evaluator {
     pub fn evaluate(&mut self, position: &mut Position) -> i32 {
         let mut score = 0;
 
-        for piece in (chess::Piece::BlackPawn as usize)..=(chess::Piece::WhiteKing as usize) {
+        for piece in (chess::Piece::WhitePawn as usize)..=(chess::Piece::BlackKing as usize) {
             let piece = chess::Piece::from(piece);
             let mut bitboard = position.bitboards[piece as usize];
 

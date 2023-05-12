@@ -115,14 +115,17 @@ impl UCI {
                     None => {}
                 }
             }
-            "stop" => match self.evaluator.result.best_move {
-                Some(best_move) => {
-                    println!("bestmove {}", best_move);
-                }
-                None => {
-                    println!("bestmove {}", chess::NULL_MOVE);
-                }
-            },
+            "stop" => {
+                self.evaluator.running = false;
+                match self.evaluator.result.best_move {
+                    Some(best_move) => {
+                        println!("bestmove {}", best_move);
+                    }
+                    None => {
+                        println!("bestmove {}", chess::NULL_MOVE);
+                    }
+                };
+            }
             "perft" => {
                 let depth = tokens[1].parse::<u8>().unwrap();
                 let nodes = self.position.perft(depth);
