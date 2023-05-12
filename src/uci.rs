@@ -125,6 +125,14 @@ impl UCI {
             };
 
             match tokens[0] {
+                "perft" => {
+                    if tokens.len() < 2 {
+                        return;
+                    }
+                    let depth = tokens[1].parse::<u8>().unwrap();
+                    let nodes = position.perft(depth);
+                    println!("nodes: {}", nodes);
+                }
                 "uci" => {
                     println!("id name redtail_vx");
                     println!("id author George T.G. Munyoro");

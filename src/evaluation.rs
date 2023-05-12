@@ -189,12 +189,12 @@ pub struct Evaluator {
 }
 
 impl Evaluator {
-    pub fn is_running(&mut self) -> bool {
+    fn is_running(&mut self) -> bool {
         let r = self.running.lock().unwrap();
         return *r;
     }
 
-    pub fn set_running(&mut self, b: bool) {
+    fn set_running(&mut self, b: bool) {
         let mut r = self.running.lock().unwrap();
         *r = b;
     }
@@ -402,7 +402,7 @@ impl Evaluator {
         return since_the_epoch.as_millis();
     }
 
-    pub fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: u8) -> i32 {
+    fn negamax(&mut self, position: &mut Position, alpha: i32, beta: i32, depth: u8) -> i32 {
         if self.result.nodes & 2047 == 0 {
             self.set_running(self.check_time());
         }
@@ -571,7 +571,7 @@ impl Evaluator {
         return mut_alpha;
     }
 
-    pub fn quiescence(&mut self, position: &mut Position, alpha: i32, beta: i32) -> i32 {
+    fn quiescence(&mut self, position: &mut Position, alpha: i32, beta: i32) -> i32 {
         if self.result.nodes & 2047 == 0 {
             self.set_running(self.check_time());
         }
@@ -624,7 +624,7 @@ impl Evaluator {
     }
 
     /// Returns a score for a move based on the Most Valuable Victim - Least Valuable Attacker heuristic.
-    pub fn get_move_mvv_lva(&mut self, m: chess::Move, is_following_pv_line: bool) -> u32 {
+    fn get_move_mvv_lva(&mut self, m: chess::Move, is_following_pv_line: bool) -> u32 {
         if is_following_pv_line {
             if m == self.pv_table[0][self.result.ply as usize] {
                 return 20000;
@@ -649,7 +649,7 @@ impl Evaluator {
         return value;
     }
 
-    pub fn order_moves(&mut self, moves: &mut Vec<chess::Move>, is_following_pv_line: bool) {
+    fn order_moves(&mut self, moves: &mut Vec<chess::Move>, is_following_pv_line: bool) {
         moves.sort_by(|a, b| {
             let a_value = self.get_move_mvv_lva(*a, is_following_pv_line);
             let b_value = self.get_move_mvv_lva(*b, is_following_pv_line);
@@ -657,7 +657,7 @@ impl Evaluator {
         });
     }
 
-    pub fn get_piece_value(&mut self, piece: chess::Piece, square: usize) -> i32 {
+    fn get_piece_value(&mut self, piece: chess::Piece, square: usize) -> i32 {
         match piece {
             chess::Piece::WhitePawn => {
                 let mut score = 100;
@@ -726,7 +726,7 @@ impl Evaluator {
         }
     }
 
-    pub fn evaluate(&mut self, position: &mut Position) -> i32 {
+    fn evaluate(&mut self, position: &mut Position) -> i32 {
         let mut score = 0;
 
         for piece in (chess::Piece::WhitePawn as usize)..=(chess::Piece::BlackKing as usize) {
