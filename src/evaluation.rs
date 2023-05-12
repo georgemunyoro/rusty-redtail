@@ -4,41 +4,12 @@ use crate::{
     board::{Board, Position},
     chess,
     movegen::MoveGenerator,
+    pst,
     tt::{self, TranspositionTable},
     utils,
 };
 
 pub const MAX_PLY: usize = 64;
-
-static ROOK_POSITIONAL_SCORE: [i32; 64] = [
-    50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 0, 0, 10, 20, 20, 10, 0, 0, 0,
-    0, 10, 20, 20, 10, 0, 0, 0, 0, 10, 20, 20, 10, 0, 0, 0, 0, 10, 20, 20, 10, 0, 0, 0, 0, 10, 20,
-    20, 10, 0, 0, 0, 0, 0, 20, 20, 0, 0, 0,
-];
-
-static KNIGHT_POSITIONAL_SCORE: [i32; 64] = [
-    -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 10, 10, 0, 0, -5, -5, 5, 20, 20, 20, 20, 5, -5, -5, 10, 20,
-    30, 30, 20, 10, -5, -5, 10, 20, 30, 30, 20, 10, -5, -5, 5, 20, 10, 10, 20, 5, -5, -5, 0, 0, 0,
-    0, 0, 0, -5, -5, -10, 0, 0, 0, 0, -10, -5,
-];
-
-static BISHOP_POSITIONAL_SCORE: [i32; 64] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 10, 0, 0, 0, 0, 0, 10, 20, 20, 10,
-    0, 0, 0, 0, 10, 20, 20, 10, 0, 0, 0, 10, 0, 0, 0, 0, 10, 0, 0, 30, 0, 0, 0, 0, 30, 0, 0, 0,
-    -10, 0, 0, -10, 0, 0,
-];
-
-static PAWN_POSITIONAL_SCORE: [i32; 64] = [
-    90, 90, 90, 90, 90, 90, 90, 90, 30, 30, 30, 40, 40, 30, 30, 30, 20, 20, 20, 30, 30, 30, 20, 20,
-    10, 10, 10, 20, 20, 10, 10, 10, 5, 5, 10, 20, 20, 5, 5, 5, 0, 0, 0, 5, 5, 0, 0, 0, 0, 0, 0,
-    -10, -10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
-
-static KING_POSITIONAL_SCORE: [i32; 64] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 5, 0, 0, 0, 5, 5, 10, 10, 5, 5, 0, 0, 5, 10, 20, 20, 10,
-    5, 0, 0, 5, 10, 20, 20, 10, 5, 0, 0, 0, 5, 10, 10, 5, 0, 0, 0, 5, 5, -5, -5, 0, 5, 0, 0, 0, 5,
-    0, -15, 0, 10, 0,
-];
 
 static MVV_LVA: [[u32; 12]; 12] = [
     [105, 205, 305, 405, 505, 605, 105, 205, 305, 405, 505, 605],
@@ -53,73 +24,6 @@ static MVV_LVA: [[u32; 12]; 12] = [
     [102, 202, 302, 402, 502, 602, 102, 202, 302, 402, 502, 602],
     [101, 201, 301, 401, 501, 601, 101, 201, 301, 401, 501, 601],
     [100, 200, 300, 400, 500, 600, 100, 200, 300, 400, 500, 600],
-];
-
-static MIRROR_SCORE: [chess::Square; 64] = [
-    chess::Square::A1,
-    chess::Square::B1,
-    chess::Square::C1,
-    chess::Square::D1,
-    chess::Square::E1,
-    chess::Square::F1,
-    chess::Square::G1,
-    chess::Square::H1,
-    chess::Square::A2,
-    chess::Square::B2,
-    chess::Square::C2,
-    chess::Square::D2,
-    chess::Square::E2,
-    chess::Square::F2,
-    chess::Square::G2,
-    chess::Square::H2,
-    chess::Square::A3,
-    chess::Square::B3,
-    chess::Square::C3,
-    chess::Square::D3,
-    chess::Square::E3,
-    chess::Square::F3,
-    chess::Square::G3,
-    chess::Square::H3,
-    chess::Square::A4,
-    chess::Square::B4,
-    chess::Square::C4,
-    chess::Square::D4,
-    chess::Square::E4,
-    chess::Square::F4,
-    chess::Square::G4,
-    chess::Square::H4,
-    chess::Square::A5,
-    chess::Square::B5,
-    chess::Square::C5,
-    chess::Square::D5,
-    chess::Square::E5,
-    chess::Square::F5,
-    chess::Square::G5,
-    chess::Square::H5,
-    chess::Square::A6,
-    chess::Square::B6,
-    chess::Square::C6,
-    chess::Square::D6,
-    chess::Square::E6,
-    chess::Square::F6,
-    chess::Square::G6,
-    chess::Square::H6,
-    chess::Square::A7,
-    chess::Square::B7,
-    chess::Square::C7,
-    chess::Square::D7,
-    chess::Square::E7,
-    chess::Square::F7,
-    chess::Square::G7,
-    chess::Square::H7,
-    chess::Square::A8,
-    chess::Square::B8,
-    chess::Square::C8,
-    chess::Square::D8,
-    chess::Square::E8,
-    chess::Square::F8,
-    chess::Square::G8,
-    chess::Square::H8,
 ];
 
 const REDUCTION_LIMIT: u8 = 3;
@@ -646,64 +550,64 @@ impl Evaluator {
         match piece {
             chess::Piece::WhitePawn => {
                 let mut score = 100;
-                score += PAWN_POSITIONAL_SCORE[square];
+                score += pst::PAWN_POSITIONAL_SCORE[square];
                 return score;
             }
             chess::Piece::WhiteKnight => {
                 let mut score = 300;
-                score += KNIGHT_POSITIONAL_SCORE[square];
+                score += pst::KNIGHT_POSITIONAL_SCORE[square];
                 return score;
             }
             chess::Piece::WhiteBishop => {
                 let mut score = 350;
-                score += BISHOP_POSITIONAL_SCORE[square];
+                score += pst::BISHOP_POSITIONAL_SCORE[square];
                 return score;
             }
             chess::Piece::WhiteRook => {
                 let mut score = 500;
-                score += ROOK_POSITIONAL_SCORE[square];
+                score += pst::ROOK_POSITIONAL_SCORE[square];
                 return score;
             }
             chess::Piece::WhiteQueen => {
                 let mut score = 1000;
-                score += ROOK_POSITIONAL_SCORE[square] + BISHOP_POSITIONAL_SCORE[square];
+                score += pst::ROOK_POSITIONAL_SCORE[square] + pst::BISHOP_POSITIONAL_SCORE[square];
                 return score;
             }
             chess::Piece::WhiteKing => {
                 let mut score = 10000;
-                score += KING_POSITIONAL_SCORE[square];
+                score += pst::KING_POSITIONAL_SCORE[square];
                 return score;
             }
 
             chess::Piece::BlackPawn => {
                 let mut score = -100;
-                score -= PAWN_POSITIONAL_SCORE[MIRROR_SCORE[square] as usize];
+                score -= pst::PAWN_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
                 return score;
             }
             chess::Piece::BlackKnight => {
                 let mut score = -300;
-                score -= KNIGHT_POSITIONAL_SCORE[MIRROR_SCORE[square] as usize];
+                score -= pst::KNIGHT_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
                 return score;
             }
             chess::Piece::BlackBishop => {
                 let mut score = -350;
-                score -= BISHOP_POSITIONAL_SCORE[MIRROR_SCORE[square] as usize];
+                score -= pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
                 return score;
             }
             chess::Piece::BlackRook => {
                 let mut score = -500;
-                score -= ROOK_POSITIONAL_SCORE[MIRROR_SCORE[square] as usize];
+                score -= pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
                 return score;
             }
             chess::Piece::BlackQueen => {
                 let mut score = -1000;
-                score -= ROOK_POSITIONAL_SCORE[MIRROR_SCORE[square] as usize]
-                    + BISHOP_POSITIONAL_SCORE[MIRROR_SCORE[square] as usize];
+                score -= pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
+                    + pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
                 return score;
             }
             chess::Piece::BlackKing => {
                 let mut score = -10000;
-                score -= KING_POSITIONAL_SCORE[MIRROR_SCORE[square] as usize];
+                score -= pst::KING_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
                 return score;
             }
 
@@ -731,77 +635,3 @@ impl Evaluator {
         };
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use crate::{
-//         board::{Board, Position},
-//         chess,
-//         evaluation::Evaluator,
-//     };
-
-//     #[test]
-//     fn evaluates_correctly() {
-//         let mut evaluator = Evaluator {
-//             running: false,
-//             transposition_table: std::collections::HashMap::new(),
-//             result: crate::evaluation::PositionEvaluation {
-//                 score: 0,
-//                 best_move: None,
-//                 depth: 0,
-//                 ply: 0,
-//                 nodes: 0,
-//             },
-//             killer_moves: [[chess::NULL_MOVE; 64]; 2],
-//             history_moves: [[0; 64]; 12],
-//             pv_length: [0; 64],
-//             pv_table: [[chess::NULL_MOVE; 64]; 64],
-//             started_at: 0,
-//             options: crate::evaluation::SearchOptions {
-//                 depth: None,
-//                 movetime: None,
-//                 infinite: false,
-//                 wtime: None,
-//                 btime: None,
-//                 winc: None,
-//                 binc: None,
-//                 movestogo: None,
-//             },
-//             tt: std::collections::HashMap::new(),
-//         };
-//         let mut board = Position::new(None);
-
-//         board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == 0);
-
-//         board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/1PPPPPPP/RNBQKBNR w KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == -100);
-
-//         board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/3PPPPP/RNBQKBNR w KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == -300);
-
-//         board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBNR w KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == -500);
-
-//         board.set_fen("rnbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == 500);
-
-//         board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RN1QKBNR w KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == -340);
-
-//         board.set_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == 30);
-
-//         board.set_fen("rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == 30);
-
-//         board.set_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == 0);
-
-//         board.set_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == 30);
-
-//         board.set_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 0 1");
-//         assert!(evaluator.evaluate(&mut board) == -30);
-//     }
-// }

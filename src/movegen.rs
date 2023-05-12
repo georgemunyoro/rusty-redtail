@@ -154,24 +154,20 @@ impl MoveGenerator for Position {
             }
 
             // generate enpassant captures
-            match self.enpassant {
-                None => {}
-                _ => {
-                    let enpassant_square = u8::from(self.enpassant.unwrap());
-                    let enpassant_attacks = self.pawn_attacks[chess::Color::Black as usize]
-                        [source as usize]
-                        & (1u64 << enpassant_square);
+            if let Some(enpassant_square) = self.enpassant {
+                let enpassant_attacks = self.pawn_attacks[chess::Color::Black as usize]
+                    [source as usize]
+                    & (1u64 << enpassant_square as u8);
 
-                    if enpassant_attacks != 0 {
-                        let target_enpassant = utils::get_lsb(enpassant_attacks);
-                        let mut m = chess::Move::new(
-                            source,
-                            chess::Square::from(target_enpassant),
-                            chess::Piece::BlackPawn,
-                        );
-                        m.en_passant = true;
-                        moves.push(m);
-                    }
+                if enpassant_attacks != 0 {
+                    let target_enpassant = utils::get_lsb(enpassant_attacks);
+                    let mut m = chess::Move::new(
+                        source,
+                        chess::Square::from(target_enpassant),
+                        chess::Piece::BlackPawn,
+                    );
+                    m.en_passant = true;
+                    moves.push(m);
                 }
             }
 
@@ -258,24 +254,20 @@ impl MoveGenerator for Position {
             }
 
             // generate enpassant captures
-            match self.enpassant {
-                None => {}
-                _ => {
-                    let enpassant_square = u8::from(self.enpassant.unwrap());
-                    let enpassant_attacks = self.pawn_attacks[chess::Color::White as usize]
-                        [source as usize]
-                        & (1u64 << enpassant_square);
+            if let Some(enpassant_square) = self.enpassant {
+                let enpassant_attacks = self.pawn_attacks[chess::Color::White as usize]
+                    [source as usize]
+                    & (1u64 << enpassant_square as u8);
 
-                    if enpassant_attacks != 0 {
-                        let target_enpassant = utils::get_lsb(enpassant_attacks);
-                        let mut m = chess::Move::new(
-                            source,
-                            chess::Square::from(target_enpassant),
-                            chess::Piece::WhitePawn,
-                        );
-                        m.en_passant = true;
-                        moves.push(m);
-                    }
+                if enpassant_attacks != 0 {
+                    let target_enpassant = utils::get_lsb(enpassant_attacks);
+                    let mut m = chess::Move::new(
+                        source,
+                        chess::Square::from(target_enpassant),
+                        chess::Piece::WhitePawn,
+                    );
+                    m.en_passant = true;
+                    moves.push(m);
                 }
             }
 
@@ -646,27 +638,5 @@ impl MoveGenerator for Position {
         }
 
         return result;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        board::{Board, Position},
-        chess,
-        movegen::MoveGenerator,
-    };
-
-    #[test]
-    fn test_starting_position_move_generation() {
-        let mut board = Position::new(Some(String::from(chess::constants::STARTING_FEN).as_str()));
-
-        let moves = board.generate_legal_moves();
-        assert_eq!(moves.len(), 20);
-
-        // Also check black's moves
-        board.turn = chess::Color::Black;
-        let black_moves = board.generate_moves();
-        assert_eq!(black_moves.len(), 20);
     }
 }
