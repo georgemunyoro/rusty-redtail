@@ -124,6 +124,9 @@ static MIRROR_SCORE: [chess::Square; 64] = [
     chess::Square::H8,
 ];
 
+const REDUCTION_LIMIT: u8 = 3;
+const FULL_DEPTH_MOVES: u8 = 4;
+
 #[derive(Debug)]
 pub struct PositionEvaluation {
     pub score: i32,
@@ -475,6 +478,8 @@ impl Evaluator {
 
         let mut found_pv = false;
 
+        let mut moves_searched = 0;
+
         for m in moves {
             let is_valid = position.make_move(m, false);
             if !is_valid {
@@ -492,12 +497,38 @@ impl Evaluator {
                     val
                 }
             } else {
-                -self.negamax(position, -beta, -mut_alpha, depth - 1)
+                if moves_searched == 0 {
+                    -self.negamax(position, -beta, -mut_alpha, depth - 1)
+                } else {
+                    // LMR
+                    let mut lmr_score = if moves_searched > FULL_DEPTH_MOVES
+                        && depth >= REDUCTION_LIMIT
+                        && !position.is_in_check()
+                        && m.capture == None
+                        && m.promotion == None
+                    {
+                        -self.negamax(position, -mut_alpha - 1, -mut_alpha, depth - 2)
+                    } else {
+                        mut_alpha + 1
+                    };
+
+                    if lmr_score > mut_alpha {
+                        lmr_score = -self.negamax(position, -mut_alpha - 1, -mut_alpha, depth - 1);
+
+                        if lmr_score > mut_alpha && lmr_score < beta {
+                            lmr_score = -self.negamax(position, -beta, -mut_alpha, depth - 1);
+                        }
+                    }
+
+                    lmr_score
+                }
             };
 
             self.result.ply -= 1;
 
             position.unmake_move();
+
+            moves_searched += 1;
 
             if !self.is_running() {
                 return 0;
