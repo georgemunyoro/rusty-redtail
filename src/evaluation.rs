@@ -6,7 +6,7 @@ use crate::{
     movegen::MoveGenerator,
     pst,
     pv::PrincipalVariationTable,
-    tt::TranspositionTable,
+    tt::{self, TranspositionTable},
     utils,
 };
 
@@ -55,7 +55,8 @@ impl SearchOptions {
     pub fn new() -> SearchOptions {
         return SearchOptions {
             depth: None,
-            movetime: None,
+            movetime: Some(3000),
+            // movetime: None,
             infinite: false,
             wtime: None,
             btime: None,
@@ -71,8 +72,6 @@ pub struct Evaluator {
     pub result: PositionEvaluation,
     pub killer_moves: [[chess::Move; MAX_PLY]; 2],
     pub history_moves: [[u32; MAX_PLY]; 12],
-    pub pv_table: [[chess::Move; MAX_PLY]; MAX_PLY],
-    pub pv_length: [u32; MAX_PLY],
     pub started_at: u128,
     pub options: SearchOptions,
     pub tt: Arc<Mutex<TranspositionTable>>,
@@ -103,19 +102,8 @@ impl Evaluator {
             },
             killer_moves: [[chess::NULL_MOVE; MAX_PLY]; 2],
             history_moves: [[0; MAX_PLY]; 12],
-            pv_length: [0; MAX_PLY],
-            pv_table: [[chess::NULL_MOVE; MAX_PLY]; MAX_PLY],
             started_at: 0,
-            options: SearchOptions {
-                depth: None,
-                movetime: None,
-                infinite: false,
-                binc: None,
-                winc: None,
-                btime: None,
-                wtime: None,
-                movestogo: None,
-            },
+            options: SearchOptions::new(),
             tt: Arc::new(Mutex::new(TranspositionTable::new())),
             repetition_table: Vec::with_capacity(150),
             pv: PrincipalVariationTable::new(),
@@ -147,19 +135,27 @@ impl Evaluator {
         self.tt = transposition_table;
         self.started_at = self._get_time_ms();
 
+        position.draw();
+
         let alpha = -50000;
         let beta = 50000;
         let mut current_depth = 1;
+
+        let mut pv_line_completed_so_far = Vec::new();
 
         loop {
             if current_depth > depth {
                 break;
             }
 
-            self.result.nodes = 0;
             let start_time = self._get_time_ms();
 
             self.negamax(position, alpha, beta, current_depth);
+
+            let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
+            if pv_line_found.len() > 0 {
+                pv_line_completed_so_far = pv_line_found;
+            }
 
             if !self.is_running() {
                 break;
@@ -169,13 +165,12 @@ impl Evaluator {
             current_depth += 1;
         }
 
-        match self.result.best_move {
-            Some(m) => {
-                println!("bestmove {}", m);
-            }
-            None => {
-                println!("bestmove {}", chess::NULL_MOVE)
-            }
+        // let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
+
+        if pv_line_completed_so_far.len() > 0 {
+            println!("bestmove {}", pv_line_completed_so_far[0].m.unwrap());
+        } else {
+            println!("bestmove {}", chess::NULL_MOVE);
         }
 
         return self.result.best_move;
@@ -183,14 +178,31 @@ impl Evaluator {
 
     fn negamax(&mut self, position: &mut Position, _alpha: i32, beta: i32, depth: u8) -> i32 {
         let mut alpha = _alpha;
+        let mut alpha_move = None;
 
         if self.result.nodes & 2047 == 0 {
             self.set_running(self.check_time());
         }
 
-        if depth == 0 {
-            return self.evaluate(position);
+        self.result.nodes += 1;
+
+        let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
+
+        if let Some(tt_value) = self
+            .tt
+            .lock()
+            .unwrap()
+            .probe(position.hash, depth, alpha, beta)
+        {
+            return tt_value;
         }
+
+        if depth == 0 {
+            let evaluation = self.evaluate(position);
+            return evaluation;
+        }
+
+        let mut legal_moves_searched = 0;
 
         let moves = position.generate_moves();
         for m in moves {
@@ -199,8 +211,11 @@ impl Evaluator {
                 continue;
             }
 
+            legal_moves_searched += 1;
             self.result.ply += 1;
+
             let score = -self.negamax(position, -beta, -alpha, depth - 1);
+
             self.result.ply -= 1;
 
             position.unmake_move();
@@ -210,20 +225,42 @@ impl Evaluator {
             }
 
             if score >= beta {
+                self.tt.lock().unwrap().save(
+                    position.hash,
+                    depth,
+                    tt::TranspositionTableEntryFlag::BETA,
+                    beta,
+                    Some(m),
+                );
                 return beta;
             }
 
             if score > alpha {
-                self.pv.store(position.hash, m);
+                hash_f = tt::TranspositionTableEntryFlag::EXACT;
+                alpha_move = Some(m);
+
                 if self.result.ply == 0 {
+                    self.result.best_move = Some(m);
                     self.result.depth = depth;
                     self.result.score = score;
-                    self.result.best_move = Some(m);
                 }
 
                 alpha = score;
             }
         }
+
+        if legal_moves_searched == 0 {
+            if position.is_in_check() {
+                alpha = -49000 + self.result.ply as i32;
+            } else {
+                alpha = 0;
+            }
+        }
+
+        self.tt
+            .lock()
+            .unwrap()
+            .save(position.hash, depth, hash_f, alpha, alpha_move);
 
         return alpha;
     }
@@ -231,41 +268,41 @@ impl Evaluator {
     fn print_info(&self, position: &mut Position, start_time: u128) {
         let stop_time = self._get_time_ms();
         let nps = (self.result.nodes as f64 / ((stop_time - start_time) as f64 / 1000.0)) as i32;
+        let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
 
-        match self.result.best_move {
-            None => {}
-            _ => {
-                let is_mate = self.result.score > 48000;
-                let mut mate_in: i32 = 0;
+        let score = pv_line_found[0].value;
 
-                if is_mate {
-                    let x = -(self.result.score - 49000);
-                    if x % 2 == 0 {
-                        mate_in = x as i32 / 2;
-                    } else {
-                        mate_in = (x as i32 + 1) / 2;
-                    }
+        if pv_line_found.len() > 0 {
+            let is_mate = score > 48000;
+            let mut mate_in: i32 = 0;
+
+            if is_mate {
+                let x = -(score - 49000);
+                if x % 2 == 0 {
+                    mate_in = x as i32 / 2;
+                } else {
+                    mate_in = (x as i32 + 1) / 2;
                 }
-
-                print!(
-                    "info score {} {} depth {} nodes {} nps {}",
-                    if is_mate { "mate" } else { "cp" },
-                    if is_mate { mate_in } else { self.result.score },
-                    self.result.depth,
-                    self.result.nodes,
-                    nps
-                );
-
-                let mut pv_str = String::new();
-                let pv_line_found = self.pv.get_pv_line(position);
-
-                for i in pv_line_found {
-                    pv_str.push_str(" ");
-                    pv_str.push_str(i.to_string().as_str());
-                }
-
-                println!(" info pv{}", pv_str);
             }
+
+            print!(
+                "info score {} {} depth {} nodes {} nps {} time {}",
+                if is_mate { "mate" } else { "cp" },
+                if is_mate { mate_in } else { score },
+                self.result.depth,
+                self.result.nodes,
+                nps,
+                stop_time - start_time
+            );
+
+            let mut pv_str = String::new();
+
+            for i in pv_line_found {
+                pv_str.push_str(" ");
+                pv_str.push_str(i.m.unwrap().to_string().as_str());
+            }
+
+            println!(" info pv{}", pv_str);
         }
     }
 
@@ -332,11 +369,11 @@ impl Evaluator {
 
     /// Returns a score for a move based on the Most Valuable Victim - Least Valuable Attacker heuristic.
     fn _get_move_mvv_lva(&mut self, m: chess::Move, is_following_pv_line: bool) -> u32 {
-        if is_following_pv_line {
-            if m == self.pv_table[0][self.result.ply as usize] {
-                return 20000;
-            }
-        }
+        // if is_following_pv_line {
+        //     if m == self.pv_table[0][self.result.ply as usize] {
+        //         return 20000;
+        //     }
+        // }
 
         let value = match m.capture {
             Some(c) => _MVV_LVA[m.piece as usize][c as usize],
