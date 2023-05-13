@@ -75,6 +75,7 @@ pub struct Evaluator {
     pub started_at: u128,
     pub options: SearchOptions,
     pub tt: TranspositionTable,
+    pub repetition_table: Vec<u64>,
 }
 
 impl Evaluator {
@@ -114,6 +115,7 @@ impl Evaluator {
                 movestogo: None,
             },
             tt: TranspositionTable::new(),
+            repetition_table: Vec::with_capacity(150),
         };
     }
 
@@ -295,6 +297,11 @@ impl Evaluator {
             self.set_running(self.check_time());
         }
 
+        // Check for repetition
+        if self.result.ply > 0 && self.repetition_table.contains(&position.hash) {
+            return 0;
+        }
+
         if let Some(stored_value) = self.tt.probe(position.hash, depth, alpha, beta) {
             return stored_value;
         }
@@ -320,9 +327,13 @@ impl Evaluator {
             && self.result.ply > 0
             && self.has_non_pawn_material(position)
         {
+            self.repetition_table.push(position.hash);
+
             position.make_null_move();
             let null_move_value = -self.negamax(position, -beta, -beta + 1, depth - 1 - 2);
             position.unmake_move();
+
+            self.repetition_table.pop();
 
             if null_move_value >= beta {
                 return beta;
@@ -348,8 +359,10 @@ impl Evaluator {
         let mut moves_searched = 0;
 
         for m in moves {
+            self.repetition_table.push(position.hash);
             let is_valid = position.make_move(m, false);
             if !is_valid {
+                self.repetition_table.pop();
                 continue;
             }
 
@@ -392,6 +405,7 @@ impl Evaluator {
             };
 
             self.result.ply -= 1;
+            self.repetition_table.pop();
 
             position.unmake_move();
 
@@ -483,8 +497,11 @@ impl Evaluator {
         self.order_moves(&mut moves, false);
 
         for m in moves {
+            self.repetition_table.push(position.hash);
+
             let is_valid = position.make_move(m, true);
             if !is_valid {
+                self.repetition_table.pop();
                 continue;
             }
 
@@ -492,6 +509,7 @@ impl Evaluator {
 
             let score = -self.quiescence(position, -beta, -mut_alpha);
 
+            self.repetition_table.pop();
             self.result.ply -= 1;
 
             position.unmake_move();
