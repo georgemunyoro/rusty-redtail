@@ -7,6 +7,7 @@ use crate::{
     board::{self, Board, Position},
     chess, evaluation,
     movegen::MoveGenerator,
+    tt::{self, TranspositionTable},
 };
 
 struct SearchThreadMessage {
@@ -56,11 +57,14 @@ impl UCI {
             let mut position = board::Position::new(None);
             position.set_fen(String::from(chess::constants::STARTING_FEN));
 
+            let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new()));
+
             let running = Arc::new(Mutex::new(true));
             let mut eval_handles = vec![];
 
             loop {
                 let is_evaluating = Arc::clone(&running);
+                let transpos_table = Arc::clone(&transposition_table);
 
                 match rx.try_recv() {
                     Ok(s) => match s.command {
@@ -83,6 +87,7 @@ impl UCI {
                                         &mut eval_position,
                                         options,
                                         is_evaluating,
+                                        transpos_table,
                                     );
                                     return bestmove;
                                 });
@@ -239,7 +244,7 @@ fn parse_and_make_moves(position: &mut board::Position, moves: Vec<&str>) {
     }
 }
 
-fn parse_move(position: &mut board::Position, move_string: &str) -> Option<chess::Move> {
+pub fn parse_move(position: &mut board::Position, move_string: &str) -> Option<chess::Move> {
     let moves = position.generate_moves();
 
     for m in moves {

@@ -4,10 +4,11 @@ mod board;
 mod chess;
 mod evaluation;
 mod movegen;
+mod pst;
+mod pv;
+mod tt;
 mod uci;
 mod utils;
-mod tt;
-mod pst;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
