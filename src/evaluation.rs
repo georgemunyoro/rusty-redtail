@@ -180,6 +180,16 @@ impl Evaluator {
             self.set_running(self.check_time());
         }
 
+        if self
+            .repetition_table
+            .iter()
+            .filter(|&&x| x == position.hash)
+            .count()
+            >= 2
+        {
+            return 0;
+        }
+
         self.result.nodes += 1;
 
         let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
@@ -200,7 +210,9 @@ impl Evaluator {
 
         let mut legal_moves_searched = 0;
 
-        let moves = position.generate_moves();
+        let mut moves = position.generate_moves();
+        self._order_moves(&mut moves, false);
+
         for m in moves {
             let is_legal_move = position.make_move(m, false);
             if !is_legal_move {
@@ -210,9 +222,13 @@ impl Evaluator {
             legal_moves_searched += 1;
             self.result.ply += 1;
 
+            self.repetition_table.push(position.hash);
+
             let score = -self.negamax(position, -beta, -alpha, depth - 1);
 
             self.result.ply -= 1;
+
+            self.repetition_table.pop();
 
             position.unmake_move();
 
