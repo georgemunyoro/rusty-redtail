@@ -160,15 +160,16 @@ impl Evaluator {
             current_depth += 1;
         }
 
-        // let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
+        let mut b = chess::NULL_MOVE;
 
         if pv_line_completed_so_far.len() > 0 {
+            b = pv_line_completed_so_far[0].m.unwrap();
             println!("bestmove {}", pv_line_completed_so_far[0].m.unwrap());
         } else {
             println!("bestmove {}", chess::NULL_MOVE);
         }
 
-        return self.result.best_move;
+        return Some(b);
     }
 
     fn negamax(&mut self, position: &mut Position, _alpha: i32, beta: i32, depth: u8) -> i32 {

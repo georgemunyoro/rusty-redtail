@@ -232,7 +232,7 @@ impl UCI {
     }
 }
 
-fn parse_and_make_moves(position: &mut board::Position, moves: Vec<&str>) {
+pub fn parse_and_make_moves(position: &mut board::Position, moves: Vec<&str>) {
     for m in moves {
         let m = parse_move(position, m);
         match m {

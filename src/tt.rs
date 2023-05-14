@@ -92,12 +92,20 @@ impl TranspositionTable {
     pub fn get_pv_line(&self, position: &mut Position) -> Vec<TranspositionTableEntry> {
         let mut pv_line = Vec::new();
 
+        let mut positions_encountered = Vec::new();
+
         loop {
             let entry = self.table[position.hash as usize % HASH_SIZE];
 
-            if entry.key != position.hash || entry.m.is_none() {
+            if entry.key != position.hash || entry.m.is_none() || pv_line.len() > 64 {
                 break;
             }
+
+            if positions_encountered.contains(&position.hash) {
+                break;
+            }
+
+            positions_encountered.push(position.hash);
 
             pv_line.push(entry);
             position.make_move(entry.m.unwrap(), false);
