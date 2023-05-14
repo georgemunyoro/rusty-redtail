@@ -7,7 +7,7 @@ use crate::{
     board::{self, Board, Position},
     chess, evaluation,
     movegen::MoveGenerator,
-    tt::{self, TranspositionTable},
+    tt::{self},
 };
 
 struct SearchThreadMessage {

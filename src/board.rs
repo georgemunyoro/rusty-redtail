@@ -177,7 +177,6 @@ pub struct Position {
     pub magic_bishop_attacks: Vec<Vec<u64>>,
     pub magic_rook_attacks: Vec<Vec<u64>>,
 
-    pub history: Vec<chess::Move>,
     pub position_stack: Vec<HistoryEntry>,
 
     pub rand_seed: u32,
@@ -257,8 +256,6 @@ impl Board for Position {
             fullmove_number: 1,
 
             rand_seed: 1804289383,
-
-            history: Vec::with_capacity(512),
 
             position_stack: Vec::with_capacity(512),
 

@@ -5,7 +5,6 @@ use crate::{
     chess,
     movegen::MoveGenerator,
     pst,
-    pv::PrincipalVariationTable,
     tt::{self, TranspositionTable},
     utils,
 };
@@ -76,7 +75,6 @@ pub struct Evaluator {
     pub options: SearchOptions,
     pub tt: Arc<Mutex<TranspositionTable>>,
     pub repetition_table: Vec<u64>,
-    pub pv: PrincipalVariationTable,
 }
 
 impl Evaluator {
@@ -106,7 +104,6 @@ impl Evaluator {
             options: SearchOptions::new(),
             tt: Arc::new(Mutex::new(TranspositionTable::new())),
             repetition_table: Vec::with_capacity(150),
-            pv: PrincipalVariationTable::new(),
         };
     }
 
@@ -134,8 +131,6 @@ impl Evaluator {
         self.running = running;
         self.tt = transposition_table;
         self.started_at = self._get_time_ms();
-
-        position.draw();
 
         let alpha = -50000;
         let beta = 50000;

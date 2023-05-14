@@ -5,7 +5,6 @@ mod chess;
 mod evaluation;
 mod movegen;
 mod pst;
-mod pv;
 mod tt;
 mod uci;
 mod utils;
