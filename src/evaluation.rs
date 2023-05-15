@@ -28,7 +28,7 @@ static _MVV_LVA: [[u32; 12]; 12] = [
 ];
 
 const _REDUCTION_LIMIT: u8 = 3;
-const _FULL_DEPTH_MOVES: u8 = 4;
+const _FULL_DEPTH_MOVES: u8 = 3;
 
 #[derive(Debug)]
 pub struct PositionEvaluation {
@@ -259,16 +259,44 @@ impl Evaluator {
             self.result.ply += 1;
             self.repetition_table.push(position.hash);
 
-            let score = if found_pv {
-                let pvs_score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false);
-                if (pvs_score > alpha) && (pvs_score < beta) {
-                    -self.negamax(position, -beta, -alpha, depth - 1, false)
-                } else {
-                    pvs_score
+            let mut _score = 0;
+
+            // If we have found a pv move, then we need to search it with a null window
+            if found_pv {
+                _score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false);
+
+                // If our pv move fails, then we need to search again with a full window
+                if (_score > alpha) && (_score < beta) {
+                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false);
                 }
             } else {
-                -self.negamax(position, -beta, -alpha, depth - 1, false)
-            };
+                if legal_moves_searched == 0 {
+                    // If we have not found a pv move, and this is the first move, then we need to search with a full window
+                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false);
+                } else {
+                    if legal_moves_searched >= _FULL_DEPTH_MOVES
+                        && depth >= _REDUCTION_LIMIT
+                        && !position.is_in_check()
+                        && pm.m.promotion.is_none()
+                        && pm.m.capture.is_none()
+                        && pm.m.promotion.is_none()
+                    {
+                        _score = -self.negamax(position, -alpha - 1, -alpha, depth - 2, false);
+                    } else {
+                        _score = alpha + 1;
+                    }
+
+                    // If we found a better move during LMR
+                    if _score > alpha {
+                        _score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false);
+
+                        // if our LMR move fails, then we need to search again with a full window
+                        if (_score > alpha) && (_score < beta) {
+                            _score = -self.negamax(position, -beta, -alpha, depth - 1, false);
+                        }
+                    }
+                }
+            }
 
             self.result.ply -= 1;
             self.repetition_table.pop();
@@ -280,7 +308,7 @@ impl Evaluator {
 
             legal_moves_searched += 1;
 
-            if score >= beta {
+            if _score >= beta {
                 self.tt.lock().unwrap().save(
                     position.hash,
                     depth,
@@ -298,15 +326,15 @@ impl Evaluator {
                 return beta;
             }
 
-            if score > alpha {
+            if _score > alpha {
                 hash_f = tt::TranspositionTableEntryFlag::EXACT;
                 alpha_move = Some(pm.m);
                 found_pv = true;
-                alpha = score;
+                alpha = _score;
 
                 if self.result.ply == 0 {
                     self.result.depth = depth;
-                    self.result.score = score;
+                    self.result.score = _score;
                     self.result.best_move = Some(pm.m);
                 }
             }
