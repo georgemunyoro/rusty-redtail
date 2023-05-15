@@ -1,5 +1,6 @@
 use std::{
     collections::BinaryHeap,
+    ptr::null,
     sync::{Arc, Mutex},
 };
 
@@ -135,8 +136,8 @@ impl Evaluator {
         self.tt = transposition_table;
         self.started_at = self._get_time_ms();
 
-        let alpha = -50000;
-        let beta = 50000;
+        let mut alpha = -50000;
+        let mut beta = 50000;
         let mut current_depth = 1;
 
         let mut pv_line_completed_so_far = Vec::new();
@@ -148,7 +149,16 @@ impl Evaluator {
 
             let start_time = self._get_time_ms();
 
-            self.negamax(position, alpha, beta, current_depth);
+            let score = self.negamax(position, alpha, beta, current_depth, false);
+
+            if score <= alpha || score >= beta {
+                alpha = -50000;
+                beta = 50000;
+                continue;
+            }
+
+            alpha = score - 50;
+            beta = score + 50;
 
             let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
             if pv_line_found.len() > 0 {
@@ -175,12 +185,36 @@ impl Evaluator {
         return Some(b);
     }
 
-    fn negamax(&mut self, position: &mut Position, _alpha: i32, beta: i32, depth: u8) -> i32 {
+    fn negamax(
+        &mut self,
+        position: &mut Position,
+        _alpha: i32,
+        beta: i32,
+        _depth: u8,
+        was_last_move_null: bool,
+    ) -> i32 {
         let mut alpha = _alpha;
+        let depth = _depth; // will be mutable later for search extensions
         let mut alpha_move = None;
 
         if self.result.nodes & 2047 == 0 {
             self.set_running(self.check_time());
+        }
+
+        let is_in_check = position.is_in_check();
+
+        if !is_in_check && depth > 2 && !was_last_move_null {
+            position.make_null_move();
+            self.result.ply += 1;
+
+            let null_move_score = -self.negamax(position, -beta, -beta + 1, depth - 3, true);
+
+            position.unmake_move();
+            self.result.ply -= 1;
+
+            if null_move_score >= beta {
+                return beta;
+            }
         }
 
         if self
@@ -214,7 +248,7 @@ impl Evaluator {
         let mut legal_moves_searched = 0;
 
         let moves = position.generate_moves();
-        let mut queue = self.order_moves_p(moves);
+        let mut queue = self.order_moves_p(moves, position);
 
         while let Some(pm) = queue.pop() {
             let is_legal_move = position.make_move(pm.m, false);
@@ -224,15 +258,12 @@ impl Evaluator {
 
             legal_moves_searched += 1;
             self.result.ply += 1;
-
             self.repetition_table.push(position.hash);
 
-            let score = -self.negamax(position, -beta, -alpha, depth - 1);
+            let score = -self.negamax(position, -beta, -alpha, depth - 1, false);
 
             self.result.ply -= 1;
-
             self.repetition_table.pop();
-
             position.unmake_move();
 
             if !self.is_running() {
@@ -247,6 +278,13 @@ impl Evaluator {
                     beta,
                     Some(pm.m),
                 );
+
+                if self.killer_moves[0][self.result.ply as usize] != pm.m {
+                    self.killer_moves[1][self.result.ply as usize] =
+                        self.killer_moves[0][self.result.ply as usize];
+                    self.killer_moves[0][self.result.ply as usize] = pm.m;
+                }
+
                 return beta;
             }
 
@@ -255,9 +293,9 @@ impl Evaluator {
                 alpha_move = Some(pm.m);
 
                 if self.result.ply == 0 {
-                    self.result.best_move = Some(pm.m);
                     self.result.depth = depth;
                     self.result.score = score;
+                    self.result.best_move = Some(pm.m);
                 }
 
                 alpha = score;
@@ -265,7 +303,7 @@ impl Evaluator {
         }
 
         if legal_moves_searched == 0 {
-            if position.is_in_check() {
+            if is_in_check {
                 alpha = -49000 + self.result.ply as i32;
             } else {
                 alpha = 0;
@@ -384,6 +422,10 @@ impl Evaluator {
 
     /// Returns a score for a move based on various heuristics.
     fn get_move_priority(&mut self, m: chess::Move, is_following_pv_line: bool) -> u32 {
+        if is_following_pv_line {
+            return 20000;
+        }
+
         let value = match m.capture {
             Some(c) => _MVV_LVA[m.piece as usize][c as usize],
             None => {
@@ -395,18 +437,29 @@ impl Evaluator {
                     return 9000;
                 }
 
-                return self.history_moves[m.piece as usize][m.to as usize];
+                return 0;
             }
         };
 
         return value;
     }
 
-    fn order_moves_p(&mut self, moves: Vec<chess::Move>) -> BinaryHeap<chess::PrioritizedMove> {
+    fn order_moves_p(
+        &mut self,
+        moves: Vec<chess::Move>,
+        position: &mut Position,
+    ) -> BinaryHeap<chess::PrioritizedMove> {
         let mut queue = BinaryHeap::new();
 
+        let mut tt_move = chess::NULL_MOVE;
+        if let Some(tt_entry) = self.tt.lock().unwrap().get(position.hash) {
+            if let Some(m) = tt_entry.m {
+                tt_move = m;
+            }
+        }
+
         for m in moves {
-            let priority = self.get_move_priority(m, false);
+            let priority = self.get_move_priority(m, m == tt_move);
             queue.push(PrioritizedMove { m, priority })
         }
 

@@ -65,6 +65,15 @@ impl TranspositionTable {
     }
 
     /// Returns the entry if it exists, otherwise returns None.
+    pub fn get(&self, key: u64) -> Option<TranspositionTableEntry> {
+        let entry = self.table[key as usize % HASH_SIZE];
+        if entry.key == key && entry.flag == TranspositionTableEntryFlag::EXACT {
+            return Some(entry);
+        }
+        return None;
+    }
+
+    /// Returns the entry if it exists and is suitable for the given lower and upper bound, otherwise returns None.
     pub fn probe(&self, key: u64, depth: u8, alpha: i32, beta: i32) -> Option<i32> {
         let entry = self.table[key as usize % HASH_SIZE];
 
