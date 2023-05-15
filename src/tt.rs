@@ -7,6 +7,7 @@ use crate::{
 const HASH_SIZE: usize = 0x400000;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
+#[repr(u8)]
 pub enum TranspositionTableEntryFlag {
     EXACT,
     BETA,
