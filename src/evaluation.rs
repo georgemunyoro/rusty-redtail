@@ -1,8 +1,11 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BinaryHeap,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     board::{Board, Position},
-    chess,
+    chess::{self, PrioritizedMove},
     movegen::MoveGenerator,
     pst,
     tt::{self, TranspositionTable},
@@ -54,8 +57,8 @@ impl SearchOptions {
     pub fn new() -> SearchOptions {
         return SearchOptions {
             depth: None,
-            movetime: Some(3000),
-            // movetime: None,
+            // movetime: Some(3000),
+            movetime: None,
             infinite: false,
             wtime: None,
             btime: None,
@@ -210,11 +213,11 @@ impl Evaluator {
 
         let mut legal_moves_searched = 0;
 
-        let mut moves = position.generate_moves();
-        self._order_moves(&mut moves, false);
+        let moves = position.generate_moves();
+        let mut queue = self.order_moves_p(moves);
 
-        for m in moves {
-            let is_legal_move = position.make_move(m, false);
+        while let Some(pm) = queue.pop() {
+            let is_legal_move = position.make_move(pm.m, false);
             if !is_legal_move {
                 continue;
             }
@@ -242,17 +245,17 @@ impl Evaluator {
                     depth,
                     tt::TranspositionTableEntryFlag::BETA,
                     beta,
-                    Some(m),
+                    Some(pm.m),
                 );
                 return beta;
             }
 
             if score > alpha {
                 hash_f = tt::TranspositionTableEntryFlag::EXACT;
-                alpha_move = Some(m);
+                alpha_move = Some(pm.m);
 
                 if self.result.ply == 0 {
-                    self.result.best_move = Some(m);
+                    self.result.best_move = Some(pm.m);
                     self.result.depth = depth;
                     self.result.score = score;
                 }
@@ -379,14 +382,8 @@ impl Evaluator {
         return since_the_epoch.as_millis();
     }
 
-    /// Returns a score for a move based on the Most Valuable Victim - Least Valuable Attacker heuristic.
-    fn _get_move_mvv_lva(&mut self, m: chess::Move, is_following_pv_line: bool) -> u32 {
-        // if is_following_pv_line {
-        //     if m == self.pv_table[0][self.result.ply as usize] {
-        //         return 20000;
-        //     }
-        // }
-
+    /// Returns a score for a move based on various heuristics.
+    fn get_move_priority(&mut self, m: chess::Move, is_following_pv_line: bool) -> u32 {
         let value = match m.capture {
             Some(c) => _MVV_LVA[m.piece as usize][c as usize],
             None => {
@@ -405,12 +402,15 @@ impl Evaluator {
         return value;
     }
 
-    fn _order_moves(&mut self, moves: &mut Vec<chess::Move>, is_following_pv_line: bool) {
-        moves.sort_by(|a, b| {
-            let a_value = self._get_move_mvv_lva(*a, is_following_pv_line);
-            let b_value = self._get_move_mvv_lva(*b, is_following_pv_line);
-            return b_value.cmp(&a_value);
-        });
+    fn order_moves_p(&mut self, moves: Vec<chess::Move>) -> BinaryHeap<chess::PrioritizedMove> {
+        let mut queue = BinaryHeap::new();
+
+        for m in moves {
+            let priority = self.get_move_priority(m, false);
+            queue.push(PrioritizedMove { m, priority })
+        }
+
+        queue
     }
 
     fn _get_piece_value(&mut self, piece: chess::Piece, square: usize) -> i32 {

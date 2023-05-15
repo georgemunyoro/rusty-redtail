@@ -1,4 +1,8 @@
-use std::{fmt::Display, ops::Not};
+use std::{
+    cmp::{Ordering, Reverse},
+    fmt::Display,
+    ops::Not,
+};
 
 pub mod constants {
     pub static STARTING_FEN: &'static str =
@@ -929,5 +933,30 @@ mod tests {
         assert_eq!(get_piece_char(Piece::WhiteQueen), 'Q');
         assert_eq!(get_piece_char(Piece::WhiteKing), 'K');
         assert_eq!(get_piece_char(Piece::Empty), '.');
+    }
+}
+
+pub struct PrioritizedMove {
+    pub priority: u32,
+    pub m: Move,
+}
+
+impl PartialEq for PrioritizedMove {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority
+    }
+}
+
+impl Eq for PrioritizedMove {}
+
+impl Ord for PrioritizedMove {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.priority.cmp(&other.priority)
+    }
+}
+
+impl PartialOrd for PrioritizedMove {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
