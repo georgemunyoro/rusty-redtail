@@ -74,6 +74,33 @@ impl TranspositionTable {
     }
 
     /// Returns the entry if it exists and is suitable for the given lower and upper bound, otherwise returns None.
+    pub fn probe_entry(
+        &self,
+        key: u64,
+        depth: u8,
+        alpha: i32,
+        beta: i32,
+    ) -> Option<(i32, TranspositionTableEntryFlag)> {
+        let entry = self.table[key as usize % HASH_SIZE];
+
+        if entry.key == key {
+            if entry.depth >= depth {
+                if entry.flag == TranspositionTableEntryFlag::EXACT {
+                    return Some((entry.value, entry.flag));
+                }
+                if entry.flag == TranspositionTableEntryFlag::ALPHA && entry.value <= alpha {
+                    return Some((alpha, entry.flag));
+                }
+                if entry.flag == TranspositionTableEntryFlag::BETA && entry.value >= beta {
+                    return Some((beta, entry.flag));
+                }
+            }
+        }
+
+        return None;
+    }
+
+    /// Returns the entry if it exists and is suitable for the given lower and upper bound, otherwise returns None.
     pub fn probe(&self, key: u64, depth: u8, alpha: i32, beta: i32) -> Option<i32> {
         let entry = self.table[key as usize % HASH_SIZE];
 

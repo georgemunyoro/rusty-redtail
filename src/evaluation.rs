@@ -231,13 +231,19 @@ impl Evaluator {
 
         let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
 
-        if let Some(tt_value) = self
-            .tt
-            .lock()
-            .unwrap()
-            .probe(position.hash, depth, alpha, beta)
+        if let Some(tt_value) =
+            self.tt
+                .lock()
+                .unwrap()
+                .probe_entry(position.hash, depth, alpha, beta)
         {
-            return tt_value;
+            if tt_value.1 == tt::TranspositionTableEntryFlag::EXACT {
+                if self.result.ply == 0 {
+                    self.result.depth = depth;
+                    self.result.score = tt_value.0;
+                }
+            }
+            return tt_value.0;
         }
 
         if depth == 0 {
@@ -250,6 +256,8 @@ impl Evaluator {
         let moves = position.generate_moves();
         let mut queue = self.order_moves_p(moves, position);
 
+        let mut found_pv = false;
+
         while let Some(pm) = queue.pop() {
             let is_legal_move = position.make_move(pm.m, false);
             if !is_legal_move {
@@ -260,7 +268,16 @@ impl Evaluator {
             self.result.ply += 1;
             self.repetition_table.push(position.hash);
 
-            let score = -self.negamax(position, -beta, -alpha, depth - 1, false);
+            let score = if found_pv {
+                let pvs_score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false);
+                if (pvs_score > alpha) && (pvs_score < beta) {
+                    -self.negamax(position, -beta, -alpha, depth - 1, false)
+                } else {
+                    pvs_score
+                }
+            } else {
+                -self.negamax(position, -beta, -alpha, depth - 1, false)
+            };
 
             self.result.ply -= 1;
             self.repetition_table.pop();
@@ -291,14 +308,14 @@ impl Evaluator {
             if score > alpha {
                 hash_f = tt::TranspositionTableEntryFlag::EXACT;
                 alpha_move = Some(pm.m);
+                found_pv = true;
+                alpha = score;
 
                 if self.result.ply == 0 {
                     self.result.depth = depth;
                     self.result.score = score;
                     self.result.best_move = Some(pm.m);
                 }
-
-                alpha = score;
             }
         }
 

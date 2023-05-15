@@ -276,8 +276,6 @@ impl MoveGenerator for Position {
     }
 
     fn generate_pawn_moves(&self, move_list: &mut Vec<chess::Move>) {
-        // let mut moves = Vec::with_capacity(256);
-
         // white pawn moves
         if self.turn == chess::Color::White {
             self.generate_white_pawn_moves(move_list)
