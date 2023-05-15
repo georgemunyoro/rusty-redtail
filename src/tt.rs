@@ -55,7 +55,7 @@ impl TranspositionTable {
         value: i32,
         m: Option<chess::Move>,
     ) {
-        self.table[key as usize % HASH_SIZE] = TranspositionTableEntry {
+        self.table[key as usize & (HASH_SIZE - 1)] = TranspositionTableEntry {
             key,
             depth,
             flag,
@@ -66,7 +66,7 @@ impl TranspositionTable {
 
     /// Returns the entry if it exists, otherwise returns None.
     pub fn get(&self, key: u64) -> Option<TranspositionTableEntry> {
-        let entry: TranspositionTableEntry = self.table[key as usize % HASH_SIZE];
+        let entry: TranspositionTableEntry = self.table[key as usize & (HASH_SIZE - 1)];
         if entry.key == key && entry.flag == TranspositionTableEntryFlag::EXACT {
             return Some(entry);
         }
@@ -81,7 +81,7 @@ impl TranspositionTable {
         alpha: i32,
         beta: i32,
     ) -> Option<(i32, TranspositionTableEntryFlag)> {
-        let entry: TranspositionTableEntry = self.table[key as usize % HASH_SIZE];
+        let entry: TranspositionTableEntry = self.table[key as usize & (HASH_SIZE - 1)];
 
         if entry.key == key {
             if entry.depth >= depth {
@@ -106,7 +106,8 @@ impl TranspositionTable {
         let mut positions_encountered: Vec<u64> = Vec::new();
 
         loop {
-            let entry: TranspositionTableEntry = self.table[position.hash as usize % HASH_SIZE];
+            let entry: TranspositionTableEntry =
+                self.table[position.hash as usize & (HASH_SIZE - 1)];
 
             if entry.key != position.hash || entry.m.is_none() || pv_line.len() > 64 {
                 break;
