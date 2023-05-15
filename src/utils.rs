@@ -1,11 +1,14 @@
+#[inline(always)]
 pub fn get_bit(bitboard: u64, bit_index: u8) -> u64 {
     return (bitboard) & (1u64 << bit_index);
 }
 
+#[inline(always)]
 pub fn set_bit(bitboard: &mut u64, bit_index: u8) {
     *bitboard |= 1u64 << bit_index;
 }
 
+#[inline(always)]
 pub fn count_bits(bitboard: u64) -> u64 {
     let mut count = 0;
     let mut temp_bitboard = bitboard;
@@ -16,16 +19,19 @@ pub fn count_bits(bitboard: u64) -> u64 {
     return count;
 }
 
+#[inline(always)]
 pub fn get_lsb(bitboard: u64) -> u8 {
     return bitboard.trailing_zeros() as u8;
 }
 
+#[inline(always)]
 pub fn pop_lsb(bitboard: &mut u64) -> u8 {
     let lsb = get_lsb(*bitboard);
     *bitboard &= *bitboard - 1;
     return lsb;
 }
 
+#[inline(always)]
 pub fn clear_bit(bitboard: &mut u64, bit_index: u8) {
     *bitboard &= !(1u64 << bit_index);
 }

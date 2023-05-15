@@ -256,7 +256,6 @@ impl Evaluator {
                 continue;
             }
 
-            legal_moves_searched += 1;
             self.result.ply += 1;
             self.repetition_table.push(position.hash);
 
@@ -278,6 +277,8 @@ impl Evaluator {
             if !self.is_running() {
                 return 0;
             }
+
+            legal_moves_searched += 1;
 
             if score >= beta {
                 self.tt.lock().unwrap().save(
