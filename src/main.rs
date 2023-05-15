@@ -1,13 +1,4 @@
-use std::{
-    sync::{Arc, Mutex},
-    thread::JoinHandle,
-};
-
-use board::Board;
-use evaluation::SearchOptions;
-use uci::{parse_and_make_moves, UCI};
-
-use crate::movegen::MoveGenerator;
+use uci::UCI;
 
 mod board;
 mod chess;

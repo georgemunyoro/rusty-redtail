@@ -1,8 +1,4 @@
-use std::{
-    cmp::{Ordering, Reverse},
-    fmt::Display,
-    ops::Not,
-};
+use std::{cmp::Ordering, fmt::Display, ops::Not};
 
 pub mod constants {
     pub static STARTING_FEN: &'static str =

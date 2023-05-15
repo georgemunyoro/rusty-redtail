@@ -1,16 +1,13 @@
 use std::{
     collections::BinaryHeap,
-    ptr::null,
     sync::{Arc, Mutex},
 };
 
 use crate::{
-    board::{self, Board, Position},
+    board::{Board, Position},
     chess::{self, PrioritizedMove},
     movegen::MoveGenerator,
-    pst,
     tt::{self, TranspositionTable},
-    utils,
 };
 
 pub const MAX_PLY: usize = 64;
@@ -229,8 +226,6 @@ impl Evaluator {
 
         self.result.nodes += 1;
 
-        let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
-
         if let Some(tt_value) =
             self.tt
                 .lock()
@@ -247,16 +242,13 @@ impl Evaluator {
         }
 
         if depth == 0 {
-            let evaluation = self.evaluate(position);
-            return evaluation;
+            return self.quiescence(position, alpha, beta);
         }
 
         let mut legal_moves_searched = 0;
-
-        let moves = position.generate_moves();
-        let mut queue = self.order_moves_p(moves, position);
-
+        let mut queue = self.order_moves_p(position.generate_moves(), position);
         let mut found_pv = false;
+        let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
 
         while let Some(pm) = queue.pop() {
             let is_legal_move = position.make_move(pm.m, false);
@@ -335,10 +327,62 @@ impl Evaluator {
         return alpha;
     }
 
+    fn quiescence(&mut self, position: &mut Position, _alpha: i32, beta: i32) -> i32 {
+        let mut alpha = _alpha;
+
+        if self.result.nodes & 2047 == 0 {
+            self.set_running(self.check_time());
+        }
+
+        self.result.nodes += 1;
+
+        let stand_pat = self.evaluate(position);
+        if stand_pat >= beta {
+            return beta;
+        }
+        if alpha < stand_pat {
+            alpha = stand_pat
+        }
+
+        let mut queue = self.order_moves_p(position.generate_moves(), position);
+        while let Some(pm) = queue.pop() {
+            if pm.m.capture.is_none() {
+                continue;
+            }
+
+            let is_legal_capture = position.make_move(pm.m, true);
+            if !is_legal_capture {
+                continue;
+            }
+
+            self.result.ply += 1;
+            let score = -self.quiescence(position, -beta, -alpha);
+            self.result.ply -= 1;
+
+            position.unmake_move();
+
+            if !self.is_running() {
+                return 0;
+            }
+
+            if score >= beta {
+                return beta;
+            }
+
+            if score > alpha {
+                alpha = score;
+            }
+        }
+
+        return alpha;
+    }
+
     fn print_info(&self, position: &mut Position, start_time: u128) {
-        let stop_time = self._get_time_ms();
-        let nps = (self.result.nodes as f64 / ((stop_time - start_time) as f64 / 1000.0)) as i32;
-        let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
+        let stop_time: u128 = self._get_time_ms();
+        let nps: i32 =
+            (self.result.nodes as f64 / ((stop_time - start_time) as f64 / 1000.0)) as i32;
+        let pv_line_found: Vec<tt::TranspositionTableEntry> =
+            self.tt.lock().unwrap().get_pv_line(position);
 
         let score = pv_line_found[0].value;
 
@@ -365,7 +409,7 @@ impl Evaluator {
                 stop_time - start_time
             );
 
-            let mut pv_str = String::new();
+            let mut pv_str: String = String::new();
 
             for i in pv_line_found {
                 pv_str.push_str(" ");
@@ -381,7 +425,7 @@ impl Evaluator {
             return true;
         }
 
-        let elapsed = self._get_time_ms() - self.started_at;
+        let elapsed: u128 = self._get_time_ms() - self.started_at;
 
         match self.options.movetime {
             Some(movetime) => {
@@ -430,8 +474,8 @@ impl Evaluator {
     }
 
     fn _get_time_ms(&self) -> u128 {
-        let now = std::time::SystemTime::now();
-        let since_the_epoch = now
+        let now: std::time::SystemTime = std::time::SystemTime::now();
+        let since_the_epoch: std::time::Duration = now
             .duration_since(std::time::UNIX_EPOCH)
             .expect("Time went backwards");
         return since_the_epoch.as_millis();
@@ -443,7 +487,7 @@ impl Evaluator {
             return 20000;
         }
 
-        let value = match m.capture {
+        let value: u32 = match m.capture {
             Some(c) => _MVV_LVA[m.piece as usize][c as usize],
             None => {
                 if self.killer_moves[0][self.result.ply as usize] == m {
@@ -466,9 +510,9 @@ impl Evaluator {
         moves: Vec<chess::Move>,
         position: &mut Position,
     ) -> BinaryHeap<chess::PrioritizedMove> {
-        let mut queue = BinaryHeap::new();
+        let mut queue: BinaryHeap<PrioritizedMove> = BinaryHeap::new();
 
-        let mut tt_move = chess::NULL_MOVE;
+        let mut tt_move: chess::Move = chess::NULL_MOVE;
         if let Some(tt_entry) = self.tt.lock().unwrap().get(position.hash) {
             if let Some(m) = tt_entry.m {
                 tt_move = m;
@@ -476,7 +520,7 @@ impl Evaluator {
         }
 
         for m in moves {
-            let priority = self.get_move_priority(m, m == tt_move);
+            let priority: u32 = self.get_move_priority(m, m == tt_move);
             queue.push(PrioritizedMove { m, priority })
         }
 
