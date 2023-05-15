@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    board::{Board, Position},
+    board::{self, Board, Position},
     chess::{self, PrioritizedMove},
     movegen::MoveGenerator,
     pst,
@@ -483,92 +483,8 @@ impl Evaluator {
         queue
     }
 
-    fn _get_piece_value(&mut self, piece: chess::Piece, square: usize) -> i32 {
-        match piece {
-            chess::Piece::WhitePawn => {
-                let mut score = 100;
-                score += pst::PAWN_POSITIONAL_SCORE[square];
-                return score;
-            }
-            chess::Piece::WhiteKnight => {
-                let mut score = 300;
-                score += pst::KNIGHT_POSITIONAL_SCORE[square];
-                return score;
-            }
-            chess::Piece::WhiteBishop => {
-                let mut score = 350;
-                score += pst::BISHOP_POSITIONAL_SCORE[square];
-                return score;
-            }
-            chess::Piece::WhiteRook => {
-                let mut score = 500;
-                score += pst::ROOK_POSITIONAL_SCORE[square];
-                return score;
-            }
-            chess::Piece::WhiteQueen => {
-                let mut score = 1000;
-                score += pst::ROOK_POSITIONAL_SCORE[square] + pst::BISHOP_POSITIONAL_SCORE[square];
-                return score;
-            }
-            chess::Piece::WhiteKing => {
-                let mut score = 10000;
-                score += pst::KING_POSITIONAL_SCORE[square];
-                return score;
-            }
-
-            chess::Piece::BlackPawn => {
-                let mut score = -100;
-                score -= pst::PAWN_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
-                return score;
-            }
-            chess::Piece::BlackKnight => {
-                let mut score = -300;
-                score -= pst::KNIGHT_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
-                return score;
-            }
-            chess::Piece::BlackBishop => {
-                let mut score = -350;
-                score -= pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
-                return score;
-            }
-            chess::Piece::BlackRook => {
-                let mut score = -500;
-                score -= pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
-                return score;
-            }
-            chess::Piece::BlackQueen => {
-                let mut score = -1000;
-                score -= pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
-                    + pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
-                return score;
-            }
-            chess::Piece::BlackKing => {
-                let mut score = -10000;
-                score -= pst::KING_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize];
-                return score;
-            }
-
-            chess::Piece::Empty => 0,
-        }
-    }
-
-    fn evaluate(&mut self, position: &mut Position) -> i32 {
-        let mut score = 0;
-
-        for piece in (chess::Piece::WhitePawn as usize)..=(chess::Piece::BlackKing as usize) {
-            let piece = chess::Piece::from(piece);
-            let mut bitboard = position.bitboards[piece as usize];
-
-            while bitboard != 0 {
-                let square = utils::pop_lsb(&mut bitboard);
-                score += self._get_piece_value(piece, square as usize);
-            }
-        }
-
-        return if position.turn == chess::Color::White {
-            score
-        } else {
-            -score
-        };
+    pub fn evaluate(&mut self, position: &mut Position) -> i32 {
+        return position.material[position.turn as usize]
+            - position.material[(!position.turn) as usize];
     }
 }

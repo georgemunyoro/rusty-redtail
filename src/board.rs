@@ -1,7 +1,7 @@
 use core::panic;
 
 use crate::{
-    chess,
+    chess, pst,
     utils::{self, pop_lsb},
 };
 
@@ -189,6 +189,7 @@ pub struct Position {
     pub zobrist_turn_key: u64,
 
     pub hash: u64,
+    pub material: [i32; 2],
 }
 
 pub struct HistoryEntry {
@@ -196,6 +197,7 @@ pub struct HistoryEntry {
     pub turn: chess::Color,
     pub enpassant: Option<chess::Square>,
     pub castling: chess::CastlingRights,
+    pub material: [i32; 2],
 
     pub halfmove_clock: u32,
     pub fullmove_number: u32,
@@ -267,6 +269,7 @@ impl Board for Position {
             zobrist_turn_key: 0,
 
             hash: 0,
+            material: [0, 0],
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -413,6 +416,14 @@ impl Board for Position {
             }
 
             utils::set_bit(&mut self.bitboards[chess::Piece::from(c) as usize], pos);
+            let piece_color = if c.is_uppercase() {
+                chess::Color::White
+            } else {
+                chess::Color::Black
+            };
+
+            self.material[piece_color as usize] +=
+                _get_piece_value(chess::Piece::from(c), pos as usize);
 
             pos += 1;
         }
@@ -535,8 +546,11 @@ impl Board for Position {
 
         // set the moving piece
         utils::set_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
+        self.material[self.turn as usize] += _get_piece_value(m.piece, m.to as usize);
+
         // remove the moving piece
         utils::clear_bit(&mut self.bitboards[m.piece as usize], m.from as u8);
+        self.material[self.turn as usize] -= _get_piece_value(m.piece, m.from as usize);
 
         // handle captures
         match m.capture {
@@ -544,6 +558,8 @@ impl Board for Position {
             Some(captured_piece) => {
                 // remove the captured piece
                 utils::clear_bit(&mut self.bitboards[captured_piece as usize], m.to as u8);
+                self.material[!self.turn as usize] -=
+                    _get_piece_value(captured_piece, m.to as usize);
             }
         }
 
@@ -553,8 +569,11 @@ impl Board for Position {
             Some(promotion_piece) => {
                 // remove the pawn
                 utils::clear_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
+                self.material[self.turn as usize] -= _get_piece_value(m.piece, m.to as usize);
                 // add the promoted piece
                 utils::set_bit(&mut self.bitboards[promotion_piece as usize], m.to as u8);
+                self.material[self.turn as usize] +=
+                    _get_piece_value(promotion_piece, m.to as usize);
             }
         }
 
@@ -574,6 +593,8 @@ impl Board for Position {
                     &mut self.bitboards[en_captured_piece as usize],
                     en_captured_square,
                 );
+                self.material[!self.turn as usize] -=
+                    _get_piece_value(en_captured_piece, en_captured_square as usize);
             }
         }
 
@@ -597,10 +618,15 @@ impl Board for Position {
                         &mut self.bitboards[chess::Piece::WhiteRook as usize],
                         chess::Square::A1 as u8,
                     );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::A1 as usize);
+
                     utils::set_bit(
                         &mut self.bitboards[chess::Piece::WhiteRook as usize],
                         chess::Square::D1 as u8,
                     );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::D1 as usize);
                 }
                 chess::Square::G1 => {
                     // white king side
@@ -608,10 +634,15 @@ impl Board for Position {
                         &mut self.bitboards[chess::Piece::WhiteRook as usize],
                         chess::Square::H1 as u8,
                     );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::H1 as usize);
+
                     utils::set_bit(
                         &mut self.bitboards[chess::Piece::WhiteRook as usize],
                         chess::Square::F1 as u8,
                     );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::F1 as usize);
                 }
                 chess::Square::C8 => {
                     // black queen side
@@ -619,10 +650,15 @@ impl Board for Position {
                         &mut self.bitboards[chess::Piece::BlackRook as usize],
                         chess::Square::A8 as u8,
                     );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(chess::Piece::BlackRook, chess::Square::A8 as usize);
+
                     utils::set_bit(
                         &mut self.bitboards[chess::Piece::BlackRook as usize],
                         chess::Square::D8 as u8,
                     );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(chess::Piece::BlackRook, chess::Square::D8 as usize);
                 }
                 chess::Square::G8 => {
                     // black king side
@@ -630,10 +666,15 @@ impl Board for Position {
                         &mut self.bitboards[chess::Piece::BlackRook as usize],
                         chess::Square::H8 as u8,
                     );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(chess::Piece::BlackRook, chess::Square::H8 as usize);
+
                     utils::set_bit(
                         &mut self.bitboards[chess::Piece::BlackRook as usize],
                         chess::Square::F8 as u8,
                     );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(chess::Piece::BlackRook, chess::Square::F8 as usize);
                 }
                 _ => {}
             }
@@ -754,6 +795,7 @@ impl Position {
             halfmove_clock: self.halfmove_clock,
             fullmove_number: self.fullmove_number,
             occupancies: self.occupancies,
+            material: self.material,
         };
     }
 
@@ -772,6 +814,7 @@ impl Position {
         self.halfmove_clock = entry.halfmove_clock;
         self.fullmove_number = entry.fullmove_number;
         self.occupancies = entry.occupancies;
+        self.material = entry.material;
     }
 
     pub fn get_piece_at_square(&self, square: u8) -> chess::Piece {
@@ -1323,6 +1366,58 @@ mod tests {
                 magic_number,
                 constants::BISHOP_MAGIC_NUMBERS[usize::from(u8::from(square))]
             );
+        }
+    }
+}
+
+pub fn _get_piece_value(piece: chess::Piece, square: usize) -> i32 {
+    if (piece as usize) < (chess::Piece::BlackPawn as usize) {
+        match piece {
+            chess::Piece::WhitePawn => {
+                return pst::PAWN_POSITIONAL_SCORE[square] + 100;
+            }
+            chess::Piece::WhiteKnight => {
+                return pst::KNIGHT_POSITIONAL_SCORE[square] + 300;
+            }
+            chess::Piece::WhiteBishop => {
+                return pst::BISHOP_POSITIONAL_SCORE[square] + 350;
+            }
+            chess::Piece::WhiteRook => {
+                return pst::ROOK_POSITIONAL_SCORE[square] + 500;
+            }
+            chess::Piece::WhiteQueen => {
+                return pst::ROOK_POSITIONAL_SCORE[square]
+                    + pst::BISHOP_POSITIONAL_SCORE[square]
+                    + 1000;
+            }
+            chess::Piece::WhiteKing => {
+                return pst::KING_POSITIONAL_SCORE[square] + 10000;
+            }
+            _ => return 0,
+        };
+    } else {
+        match piece {
+            chess::Piece::BlackPawn => {
+                return pst::PAWN_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 100;
+            }
+            chess::Piece::BlackKnight => {
+                return pst::KNIGHT_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 300;
+            }
+            chess::Piece::BlackBishop => {
+                return pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 350;
+            }
+            chess::Piece::BlackRook => {
+                return pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 500;
+            }
+            chess::Piece::BlackQueen => {
+                return (pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
+                    + pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize])
+                    + 1000;
+            }
+            chess::Piece::BlackKing => {
+                return pst::KING_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 10000;
+            }
+            _ => return 0,
         }
     }
 }
