@@ -510,7 +510,7 @@ impl Evaluator {
         moves: Vec<chess::Move>,
         position: &mut Position,
     ) -> BinaryHeap<chess::PrioritizedMove> {
-        let mut queue: BinaryHeap<PrioritizedMove> = BinaryHeap::new();
+        let mut queue: BinaryHeap<PrioritizedMove> = BinaryHeap::with_capacity(moves.len());
 
         let mut tt_move: chess::Move = chess::NULL_MOVE;
         if let Some(tt_entry) = self.tt.lock().unwrap().get(position.hash) {
