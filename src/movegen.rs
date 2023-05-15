@@ -2,7 +2,8 @@ use std::fmt::Display;
 
 use crate::{
     board::{Board, Position},
-    chess, utils,
+    chess::{self},
+    utils,
 };
 
 pub trait MoveGenerator {
@@ -443,7 +444,11 @@ impl MoveGenerator for Position {
                 == chess::Piece::Empty
                 && self.get_piece_at_square(chess::Square::F1 as u8) == chess::Piece::Empty;
 
-            if is_king_side_empty && self.castling.white_king_side {
+            if is_king_side_empty
+                && self
+                    .castling
+                    .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
+            {
                 if !self.is_square_attacked(chess::Square::E1, chess::Color::Black)
                     && !self.is_square_attacked(chess::Square::F1, chess::Color::Black)
                     && self.get_piece_at_square(chess::Square::H1 as u8) == chess::Piece::WhiteRook
@@ -463,7 +468,11 @@ impl MoveGenerator for Position {
                 && self.get_piece_at_square(chess::Square::C1 as u8) == chess::Piece::Empty
                 && self.get_piece_at_square(chess::Square::B1 as u8) == chess::Piece::Empty;
 
-            if is_queen_side_empty && self.castling.white_queen_side {
+            if is_queen_side_empty
+                && self
+                    .castling
+                    .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
+            {
                 if !self.is_square_attacked(chess::Square::E1, chess::Color::Black)
                     && !self.is_square_attacked(chess::Square::D1, chess::Color::Black)
                     && self.get_piece_at_square(chess::Square::A1 as u8) == chess::Piece::WhiteRook
@@ -482,7 +491,11 @@ impl MoveGenerator for Position {
                 == chess::Piece::Empty
                 && self.get_piece_at_square(chess::Square::F8 as u8) == chess::Piece::Empty;
 
-            if is_king_side_empty && self.castling.black_king_side {
+            if is_king_side_empty
+                && self
+                    .castling
+                    .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
+            {
                 if !self.is_square_attacked(chess::Square::E8, chess::Color::White)
                     && !self.is_square_attacked(chess::Square::F8, chess::Color::White)
                     && self.get_piece_at_square(chess::Square::H8 as u8) == chess::Piece::BlackRook
@@ -502,7 +515,11 @@ impl MoveGenerator for Position {
                 && self.get_piece_at_square(chess::Square::C8 as u8) == chess::Piece::Empty
                 && self.get_piece_at_square(chess::Square::B8 as u8) == chess::Piece::Empty;
 
-            if is_queen_side_empty && self.castling.black_queen_side {
+            if is_queen_side_empty
+                && self
+                    .castling
+                    .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
+            {
                 if !self.is_square_attacked(chess::Square::E8, chess::Color::White)
                     && !self.is_square_attacked(chess::Square::D8, chess::Color::White)
                     && self.get_piece_at_square(chess::Square::A8 as u8) == chess::Piece::BlackRook

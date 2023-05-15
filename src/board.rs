@@ -248,12 +248,7 @@ impl Board for Position {
             magic_rook_attacks: vec![vec![0; 4096]; 64],
 
             enpassant: None,
-            castling: chess::CastlingRights {
-                white_king_side: false,
-                white_queen_side: false,
-                black_king_side: false,
-                black_queen_side: false,
-            },
+            castling: chess::CastlingRights::new(),
             halfmove_clock: 0,
             fullmove_number: 1,
 
@@ -342,23 +337,31 @@ impl Board for Position {
 
         // Castling availability
         fen.push(' ');
-        if self.castling.white_king_side {
+        if self
+            .castling
+            .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
+        {
             fen.push('K');
         }
-        if self.castling.white_queen_side {
+        if self
+            .castling
+            .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
+        {
             fen.push('Q');
         }
-        if self.castling.black_king_side {
+        if self
+            .castling
+            .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
+        {
             fen.push('k');
         }
-        if self.castling.black_queen_side {
+        if self
+            .castling
+            .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
+        {
             fen.push('q');
         }
-        if !self.castling.white_king_side
-            && !self.castling.white_queen_side
-            && !self.castling.black_king_side
-            && !self.castling.black_queen_side
-        {
+        if self.castling.get_rights_u8() == 0 {
             fen.push('-');
         }
 
@@ -681,40 +684,54 @@ impl Board for Position {
         }
 
         if m.piece == chess::Piece::WhiteKing {
-            self.castling.white_king_side = false;
-            self.castling.white_queen_side = false;
+            self.castling.remove_right(
+                chess::CastlingRights::WHITE_KINGSIDE | chess::CastlingRights::WHITE_QUEENSIDE,
+            );
         } else if m.piece == chess::Piece::BlackKing {
-            self.castling.black_king_side = false;
-            self.castling.black_queen_side = false;
+            self.castling.remove_right(
+                chess::CastlingRights::BLACK_KINGSIDE | chess::CastlingRights::BLACK_QUEENSIDE,
+            );
         }
 
-        // first move of a rook disables castling
+        // First move of a rook disables castling
         if m.piece == chess::Piece::WhiteRook
             && m.from == chess::Square::A1
-            && self.castling.white_queen_side
+            && self
+                .castling
+                .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
         {
-            self.castling.white_queen_side = false;
+            self.castling
+                .remove_right(chess::CastlingRights::WHITE_QUEENSIDE);
         }
 
         if m.piece == chess::Piece::WhiteRook
             && m.from == chess::Square::H1
-            && self.castling.white_king_side
+            && self
+                .castling
+                .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
         {
-            self.castling.white_king_side = false;
+            self.castling
+                .remove_right(chess::CastlingRights::WHITE_KINGSIDE);
         }
 
         if m.piece == chess::Piece::BlackRook
             && m.from == chess::Square::A8
-            && self.castling.black_queen_side
+            && self
+                .castling
+                .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
         {
-            self.castling.black_queen_side = false;
+            self.castling
+                .remove_right(chess::CastlingRights::BLACK_QUEENSIDE);
         }
 
         if m.piece == chess::Piece::BlackRook
             && m.from == chess::Square::H8
-            && self.castling.black_king_side
+            && self
+                .castling
+                .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
         {
-            self.castling.black_king_side = false;
+            self.castling
+                .remove_right(chess::CastlingRights::BLACK_KINGSIDE);
         }
 
         self.update_occupancies();
@@ -755,7 +772,7 @@ impl Position {
             hash ^= self.zobrist_enpassant_keys[self.enpassant.unwrap() as usize];
         }
 
-        hash ^= self.zobrist_castling_keys[usize::from(self.castling)];
+        hash ^= self.zobrist_castling_keys[self.castling.get_rights_u8() as usize];
 
         if self.turn == chess::Color::Black {
             hash ^= self.zobrist_turn_key;
