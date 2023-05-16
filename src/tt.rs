@@ -4,7 +4,7 @@ use crate::{
     movegen::MoveGenerator,
 };
 
-const HASH_SIZE: usize = 0x400000;
+const HASH_SIZE: usize = 0x1000000;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]

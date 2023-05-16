@@ -191,7 +191,7 @@ impl Evaluator {
         was_last_move_null: bool,
     ) -> i32 {
         let mut alpha = _alpha;
-        let depth = _depth; // will be mutable later for search extensions
+        let mut depth = _depth; // will be mutable later for search extensions
         let mut alpha_move = None;
 
         if self.result.nodes & 2047 == 0 {
@@ -212,6 +212,14 @@ impl Evaluator {
             if null_move_score >= beta {
                 return beta;
             }
+        }
+
+        if self.result.ply >= MAX_PLY as u32 {
+            return self.evaluate(position);
+        }
+
+        if is_in_check {
+            depth += 1;
         }
 
         if self
