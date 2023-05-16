@@ -1,3 +1,6 @@
+#![feature(test)]
+extern crate test;
+
 use uci::UCI;
 
 mod board;

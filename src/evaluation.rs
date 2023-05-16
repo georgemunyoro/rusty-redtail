@@ -345,6 +345,8 @@ impl Evaluator {
                     self.result.score = _score;
                     self.result.best_move = Some(pm.m);
                 }
+
+                self.history_moves[pm.m.piece as usize][self.result.ply as usize] += depth as u32;
             }
         }
 
@@ -536,7 +538,7 @@ impl Evaluator {
                     return 9000;
                 }
 
-                return 0;
+                return self.history_moves[m.piece as usize][self.result.ply as usize] as u32;
             }
         };
 

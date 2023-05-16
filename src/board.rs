@@ -1,5 +1,3 @@
-use core::panic;
-
 use crate::{
     chess, pst,
     utils::{self, pop_lsb},
@@ -232,7 +230,7 @@ impl Board for Position {
     fn new(fen: Option<&str>) -> Position {
         let mut pos = Position {
             bitboards: [0; 12],
-            turn: chess::Color::Both,
+            turn: chess::Color::White,
 
             pawn_attacks: [[0; 64]; 2],
             knight_attacks: [0; 64],
@@ -332,7 +330,6 @@ impl Board for Position {
         fen.push_str(match self.turn {
             chess::Color::White => "w",
             chess::Color::Black => "b",
-            _ => panic!("Invalid color"),
         });
 
         // Castling availability
@@ -455,22 +452,38 @@ impl Board for Position {
 
     /// Returns true if the given square is attacked by the given color
     fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool {
-        // attacked by white pawns
-        if (color == chess::Color::White)
-            && (self.pawn_attacks[chess::Color::Black as usize][square as usize]
+        if color == chess::Color::White {
+            // attacked by white pawns
+            if (self.pawn_attacks[chess::Color::Black as usize][square as usize]
                 & self.bitboards[chess::Piece::WhitePawn as usize])
                 != 0
-        {
-            return true;
-        }
+            {
+                return true;
+            }
 
-        // attacked by black pawns
-        if (color == chess::Color::Black)
-            && (self.pawn_attacks[chess::Color::White as usize][square as usize]
+            // attackd by white bishops
+            if self.get_bishop_magic_attacks(square, self.get_both_occupancy())
+                & self.bitboards[chess::Piece::WhiteBishop as usize]
+                != 0
+            {
+                return true;
+            }
+        } else {
+            // attacked by black pawns
+            if (self.pawn_attacks[chess::Color::White as usize][square as usize]
                 & self.bitboards[chess::Piece::BlackPawn as usize])
                 != 0
-        {
-            return true;
+            {
+                return true;
+            }
+
+            // attackd by black bishops
+            if self.get_bishop_magic_attacks(square, self.get_both_occupancy())
+                & self.bitboards[chess::Piece::BlackBishop as usize]
+                != 0
+            {
+                return true;
+            }
         }
 
         // attacked by knights
@@ -489,7 +502,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackBishop
         };
-        if (self.get_bishop_magic_attacks(square, self.get_occupancy(chess::Color::Both))
+        if (self.get_bishop_magic_attacks(square, self.get_both_occupancy())
             & self.bitboards[bishop_piece as usize])
             != 0
         {
@@ -502,7 +515,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackRook
         };
-        if (self.get_rook_magic_attacks(square, self.get_occupancy(chess::Color::Both))
+        if (self.get_rook_magic_attacks(square, self.get_both_occupancy())
             & self.bitboards[rook_piece as usize])
             != 0
         {
@@ -515,7 +528,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackQueen
         };
-        if (self.get_queen_magic_attacks(square, self.get_occupancy(chess::Color::Both))
+        if (self.get_queen_magic_attacks(square, self.get_both_occupancy())
             & self.bitboards[queen_piece as usize])
             != 0
         {
@@ -536,11 +549,10 @@ impl Board for Position {
     }
 
     fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool {
-        if only_captures {
-            match m.capture {
-                None => return false,
-                _ => return self.make_move(m, false),
-            }
+        let is_capture = m.capture.is_some();
+
+        if only_captures && !is_capture {
+            return false;
         }
 
         // add the move to the history
@@ -556,14 +568,11 @@ impl Board for Position {
         self.material[self.turn as usize] -= _get_piece_value(m.piece, m.from as usize);
 
         // handle captures
-        match m.capture {
-            None => {}
-            Some(captured_piece) => {
-                // remove the captured piece
-                utils::clear_bit(&mut self.bitboards[captured_piece as usize], m.to as u8);
-                self.material[!self.turn as usize] -=
-                    _get_piece_value(captured_piece, m.to as usize);
-            }
+        if is_capture {
+            let captured_piece = m.capture.unwrap();
+            // remove the captured piece
+            utils::clear_bit(&mut self.bitboards[captured_piece as usize], m.to as u8);
+            self.material[!self.turn as usize] -= _get_piece_value(captured_piece, m.to as usize);
         }
 
         // handle promotions
@@ -820,7 +829,6 @@ impl Position {
     fn update_occupancies(&mut self) {
         self.occupancies[chess::Color::Black as usize] = self.get_occupancy(chess::Color::Black);
         self.occupancies[chess::Color::White as usize] = self.get_occupancy(chess::Color::White);
-        self.occupancies[chess::Color::Both as usize] = self.get_occupancy(chess::Color::Both);
     }
 
     pub fn apply_history_entry(&mut self, entry: HistoryEntry) {
@@ -1312,6 +1320,21 @@ impl Position {
 
         return white_occupancy | black_occupancy;
     }
+
+    pub fn get_both_occupancy(&self) -> u64 {
+        let mut white_occupancy = 0u64;
+        let mut black_occupancy = 0u64;
+
+        for piece in (chess::Piece::WhitePawn as u8)..=(chess::Piece::WhiteKing as u8) {
+            white_occupancy |= self.bitboards[piece as usize];
+        }
+
+        for piece in (chess::Piece::BlackPawn as u8)..=(chess::Piece::BlackKing as u8) {
+            black_occupancy |= self.bitboards[piece as usize];
+        }
+
+        return white_occupancy | black_occupancy;
+    }
 }
 
 #[cfg(test)]
@@ -1320,6 +1343,18 @@ mod tests {
         board::{constants, Board, Position},
         chess::{self, Piece},
     };
+
+    #[bench]
+    fn bench_is_square_attacked(b: &mut test::Bencher) {
+        let position = Position::new(Some(chess::constants::STARTING_FEN));
+
+        b.iter(|| {
+            for i in 0..64 {
+                position.is_square_attacked(chess::Square::from(i as usize), chess::Color::White);
+                position.is_square_attacked(chess::Square::from(i as usize), chess::Color::Black);
+            }
+        });
+    }
 
     #[test]
     fn get_piece_at_square_and_set_fen_works() {

@@ -728,7 +728,6 @@ pub static PIECE_ITER: [Piece; 12] = [
 pub enum Color {
     White,
     Black,
-    Both,
 }
 
 impl Not for Color {
@@ -738,7 +737,6 @@ impl Not for Color {
         match self {
             Color::White => Color::Black,
             Color::Black => Color::White,
-            Color::Both => Color::Both,
         }
     }
 }
@@ -751,7 +749,6 @@ impl Display for Color {
             match self {
                 Color::White => "White",
                 Color::Black => "Black",
-                Color::Both => "Both",
             }
         )
     }
@@ -762,7 +759,6 @@ impl From<Color> for usize {
         match v {
             Color::White => 0,
             Color::Black => 1,
-            Color::Both => 2,
         }
     }
 }
