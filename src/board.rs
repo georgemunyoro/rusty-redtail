@@ -1397,18 +1397,6 @@ mod tests {
         chess::{self, Piece},
     };
 
-    #[bench]
-    fn bench_is_square_attacked(b: &mut test::Bencher) {
-        let position = Position::new(Some(chess::constants::STARTING_FEN));
-
-        b.iter(|| {
-            for i in 0..64 {
-                position.is_square_attacked(chess::Square::from(i as usize), chess::Color::White);
-                position.is_square_attacked(chess::Square::from(i as usize), chess::Color::Black);
-            }
-        });
-    }
-
     #[test]
     fn get_piece_at_square_and_set_fen_works() {
         let position = Position::new(Some(
@@ -1473,21 +1461,6 @@ mod tests {
             );
         }
     }
-}
-
-enum GamePhase {
-    OPENING,
-    ENDGAME,
-    MIDDLEGAME,
-}
-
-enum PieceType {
-    PAWN,
-    KNIGHT,
-    BISHOP,
-    ROOK,
-    QUEEN,
-    KING,
 }
 
 /*
