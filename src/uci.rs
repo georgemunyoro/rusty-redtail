@@ -1,259 +1,261 @@
-use std::io::{self, BufRead};
-
-use crate::{
-    board::{Board, Position},
-    chess,
-    evaluation::{Evaluator, SearchOptions, MAX_PLY},
-    movegen::MoveGenerator,
+use std::{
+    io,
+    sync::{mpsc::TryRecvError, Arc, Mutex},
 };
 
+use crate::{
+    board::{self, Board, Position},
+    chess, evaluation,
+    movegen::MoveGenerator,
+    tt::{self},
+};
+
+struct SearchThreadMessage {
+    command: SearchThreadCommand,
+
+    /// We send the position as an FEN string, so we don't have to worry about
+    /// cloning it and sending it across threads.
+    position: Option<String>,
+    options: Option<evaluation::SearchOptions>,
+}
+
+impl SearchThreadMessage {
+    fn new(command: SearchThreadCommand) -> SearchThreadMessage {
+        SearchThreadMessage {
+            command,
+            position: None,
+            options: None,
+        }
+    }
+}
+
+enum SearchThreadCommand {
+    Quit,
+    Stop,
+    SetPosition,
+    Go,
+}
+
 pub struct UCI {
-    pub position: Position,
-    pub evaluator: Evaluator,
-    pub running: bool,
+    position: Position,
 }
 
 impl UCI {
     pub fn new() -> UCI {
         let mut uci = UCI {
             position: Position::new(None),
-            evaluator: Evaluator {
-                running: false,
-                transposition_table: std::collections::HashMap::new(),
-                result: crate::evaluation::PositionEvaluation {
-                    score: 0,
-                    best_move: None,
-                    depth: 0,
-                    ply: 0,
-                    nodes: 0,
-                },
-                killer_moves: [[chess::NULL_MOVE; MAX_PLY]; 2],
-                history_moves: [[0; MAX_PLY]; 12],
-                pv_length: [0; MAX_PLY],
-                pv_table: [[chess::NULL_MOVE; MAX_PLY]; 64],
-                started_at: 0,
-                options: SearchOptions {
-                    depth: None,
-                    movetime: None,
-                    infinite: false,
-                    binc: None,
-                    winc: None,
-                    btime: None,
-                    wtime: None,
-                    movestogo: None,
-                },
-                tt: std::collections::HashMap::new(),
-            },
-            running: true,
         };
-        uci.position.set_fen(chess::constants::STARTING_FEN);
+        uci.position
+            .set_fen(String::from(chess::constants::STARTING_FEN));
         return uci;
     }
 
-    pub fn handle_uci_input(&mut self, line: String) {
-        let tokens = Iterator::collect::<Vec<&str>>(line.split_whitespace());
-
-        if tokens.len() == 0 {
-            return;
-        };
-
-        match tokens[0] {
-            "uci" => {
-                println!("id name redtail_vx");
-                println!("id author George T.G. Munyoro");
-                println!("uciok");
-            }
-            "go" => {
-                // store go command options
-                let mut options = SearchOptions {
-                    depth: None,
-                    movetime: None,
-                    infinite: false,
-                    binc: None,
-                    winc: None,
-                    btime: None,
-                    wtime: None,
-                    movestogo: None,
-                };
-
-                for i in 1..tokens.len() {
-                    match tokens[i] {
-                        "depth" => {
-                            options.depth = Some(tokens[i + 1].parse::<u8>().unwrap());
-                        }
-                        "movetime" => {
-                            options.movetime = Some(tokens[i + 1].parse::<u32>().unwrap());
-                        }
-                        "infinite" => {
-                            options.infinite = true;
-                        }
-                        "binc" => {
-                            options.binc = Some(tokens[i + 1].parse::<u32>().unwrap());
-                        }
-                        "winc" => {
-                            options.winc = Some(tokens[i + 1].parse::<u32>().unwrap());
-                        }
-                        "btime" => {
-                            options.btime = Some(tokens[i + 1].parse::<u32>().unwrap());
-                        }
-                        "wtime" => {
-                            options.wtime = Some(tokens[i + 1].parse::<u32>().unwrap());
-                        }
-                        "movestogo" => {
-                            options.movestogo = Some(tokens[i + 1].parse::<u32>().unwrap());
-                        }
-                        _ => {}
-                    }
-                }
-
-                let best_move = self.evaluator.get_best_move(&mut self.position, options);
-
-                match best_move {
-                    Some(best_move) => {
-                        println!("bestmove {}", best_move);
-                    }
-                    None => {}
-                }
-            }
-            "stop" => match self.evaluator.result.best_move {
-                Some(best_move) => {
-                    println!("bestmove {}", best_move);
-                }
-                None => {
-                    println!("bestmove {}", chess::NULL_MOVE);
-                }
-            },
-            "perft" => {
-                let depth = tokens[1].parse::<u8>().unwrap();
-                let nodes = self.position.perft(depth);
-
-                println!("Nodes: {}", nodes);
-            }
-            "position" => self.handle_position_command(tokens),
-            "quit" => self.stop(),
-            "draw" => self.position.draw(),
-            "ucinewgame" => self.position.set_fen(chess::constants::STARTING_FEN),
-            "isready" => println!("readyok"),
-            "hash" => {
-                // self.position.update_hash();
-                let mut hash = 0;
-                hash ^= self.position.zobrist_piece_keys[chess::Piece::WhitePawn as usize]
-                    [chess::Square::A2 as usize];
-                println!("{:016x}", hash);
-            }
-            "update:hash" => self.position.update_hash(),
-            "listmoves" => {
-                let mut moves = self.position.generate_legal_moves();
-                println!();
-                self.evaluator.order_moves(&mut moves, false);
-                for m in moves {
-                    println!("{} {}", m, self.evaluator.get_move_mvv_lva(m, false));
-                }
-            }
-            "evaluate" => {
-                self.evaluator.result = crate::evaluation::PositionEvaluation {
-                    score: 0,
-                    best_move: None,
-                    depth: 0,
-                    ply: 0,
-                    nodes: 0,
-                };
-                let moves = self.position.generate_moves();
-                // println!("{}", self.evaluator.evaluate(&mut self.position));
-                for m in moves {
-                    let is_valid = self.position.make_move(m, false);
-                    if !is_valid {
-                        continue;
-                    }
-
-                    let score = -self
-                        .evaluator
-                        .negamax(&mut self.position, -1000000, 1000000, 4);
-                    self.position.unmake_move();
-
-                    println!("{} {}", m, score);
-                }
-                self.evaluator.result = crate::evaluation::PositionEvaluation {
-                    score: 0,
-                    best_move: None,
-                    depth: 0,
-                    ply: 0,
-                    nodes: 0,
-                };
-            }
-            _ => {
-                println!("Unknown command: {}", tokens[0]);
-            }
-        }
-    }
-
     pub fn uci_loop(&mut self) {
-        while self.running {
-            let stdin = io::stdin();
-            let mut line = String::new();
-            stdin.lock().read_line(&mut line).unwrap();
-            self.handle_uci_input(line);
-        }
-    }
+        let (tx, rx) = std::sync::mpsc::channel::<SearchThreadMessage>();
 
-    pub fn stop(&mut self) {
-        self.running = false;
-    }
+        let search_thread = std::thread::spawn(move || {
+            let mut position = board::Position::new(None);
+            position.set_fen(String::from(chess::constants::STARTING_FEN));
 
-    fn parse_move(&self, move_string: &str) -> Option<chess::Move> {
-        let moves = self.position.generate_moves();
+            let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new()));
 
-        for m in moves {
-            if m.to_string() == move_string {
-                return Some(m);
-            }
-        }
+            let running = Arc::new(Mutex::new(true));
+            let mut eval_handles = vec![];
 
-        return None;
-    }
+            loop {
+                let is_evaluating = Arc::clone(&running);
+                let transpos_table = Arc::clone(&transposition_table);
 
-    fn parse_and_make_moves(&mut self, moves: Vec<&str>) {
-        for m in moves {
-            let m = self.parse_move(m);
-            match m {
-                Some(m) => {
-                    self.position.make_move(m, false);
+                match rx.try_recv() {
+                    Ok(s) => match s.command {
+                        SearchThreadCommand::Quit => {
+                            break;
+                        }
+                        SearchThreadCommand::SetPosition => match s.position {
+                            Some(fen) => position.set_fen(fen),
+                            None => {}
+                        },
+                        SearchThreadCommand::Go => match s.options {
+                            Some(options) => {
+                                let position_fen = String::from(position.as_fen());
+
+                                let handle = std::thread::spawn(move || {
+                                    let mut eval_position = board::Position::new(None);
+                                    let mut evaluator = evaluation::Evaluator::new();
+                                    eval_position.set_fen(String::from(position_fen));
+                                    let bestmove = evaluator.get_best_move(
+                                        &mut eval_position,
+                                        options,
+                                        is_evaluating,
+                                        transpos_table,
+                                    );
+                                    return bestmove;
+                                });
+                                eval_handles.push(handle);
+                            }
+                            None => {}
+                        },
+                        SearchThreadCommand::Stop => {
+                            {
+                                let mut r = running.lock().unwrap();
+                                *r = false;
+                            }
+
+                            while eval_handles.len() > 0 {
+                                let cur_thread = eval_handles.remove(0);
+                                cur_thread.join().unwrap();
+                            }
+                        }
+                    },
+                    Err(TryRecvError::Empty) => {}
+                    Err(TryRecvError::Disconnected) => {
+                        println!("Disconnected");
+                        break;
+                    }
                 }
-                None => {}
             }
+            sleep(100);
+        });
+
+        let mut position = board::Position::new(None);
+        position.set_fen(String::from(chess::constants::STARTING_FEN));
+
+        loop {
+            let mut buffer = String::new();
+            io::stdin().read_line(&mut buffer).unwrap();
+            let tokens = Iterator::collect::<Vec<&str>>(buffer.trim().split_whitespace());
+
+            if tokens.len() == 0 {
+                continue;
+            };
+
+            match tokens[0] {
+                "perft" => {
+                    if tokens.len() < 2 {
+                        return;
+                    }
+                    let depth = tokens[1].parse::<u8>().unwrap();
+                    let nodes = position.perft(depth);
+                    println!("nodes: {}", nodes);
+                }
+                "uci" => {
+                    println!("id name redtail_vx");
+                    println!("id author George T.G. Munyoro");
+                    println!("uciok");
+                }
+                "quit" => {
+                    tx.send(SearchThreadMessage::new(SearchThreadCommand::Quit))
+                        .unwrap();
+                    break;
+                }
+                "ucinewgame" => self
+                    .position
+                    .set_fen(String::from(chess::constants::STARTING_FEN)),
+                "isready" => println!("readyok"),
+                "position" => {
+                    if tokens.len() < 2 {
+                        return;
+                    }
+
+                    if tokens[1] == "startpos" {
+                        position.set_fen(String::from(chess::constants::STARTING_FEN));
+
+                        if tokens.len() > 2 && tokens[2] == "moves" {
+                            parse_and_make_moves(&mut position, tokens[3..].to_vec());
+                        }
+                    }
+
+                    if tokens[1] == "fen" {
+                        if tokens.len() < 8 {
+                            return;
+                        }
+
+                        let mut fen = String::new();
+                        for i in 2..8 {
+                            fen.push_str(tokens[i]);
+                            fen.push_str(" ");
+                        }
+                        fen.pop();
+
+                        position.set_fen(String::from(fen));
+
+                        if tokens.len() > 8 && tokens[8] == "moves" {
+                            parse_and_make_moves(&mut position, tokens[9..].to_vec());
+                        }
+                    }
+
+                    tx.send(SearchThreadMessage {
+                        command: SearchThreadCommand::SetPosition,
+                        position: Some(position.as_fen()),
+                        options: None,
+                    })
+                    .unwrap();
+                }
+                "go" => {
+                    let mut options = evaluation::SearchOptions::new();
+                    for i in 1..tokens.len() {
+                        match tokens[i] {
+                            "infinite" => options.infinite = true,
+                            "depth" => options.depth = Some(tokens[i + 1].parse::<u8>().unwrap()),
+                            "binc" => options.binc = Some(tokens[i + 1].parse::<u32>().unwrap()),
+                            "winc" => options.winc = Some(tokens[i + 1].parse::<u32>().unwrap()),
+                            "btime" => options.btime = Some(tokens[i + 1].parse::<u32>().unwrap()),
+                            "wtime" => options.wtime = Some(tokens[i + 1].parse::<u32>().unwrap()),
+                            "movestogo" => {
+                                options.movestogo = Some(tokens[i + 1].parse::<u32>().unwrap())
+                            }
+                            "movetime" => {
+                                options.movetime = Some(tokens[i + 1].parse::<u32>().unwrap())
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    tx.send(SearchThreadMessage {
+                        command: SearchThreadCommand::Go,
+                        position: Some(position.as_fen()),
+                        options: Some(options),
+                    })
+                    .unwrap();
+                }
+                "stop" => {
+                    tx.send(SearchThreadMessage::new(SearchThreadCommand::Stop))
+                        .unwrap();
+                }
+                _ => {
+                    println!("Unknown command: {}", buffer.trim());
+                }
+            }
+        }
+
+        search_thread.join().unwrap();
+    }
+}
+
+pub fn parse_and_make_moves(position: &mut board::Position, moves: Vec<&str>) {
+    for m in moves {
+        let m = parse_move(position, m);
+        match m {
+            Some(m) => {
+                position.make_move(m, false);
+            }
+            None => {}
+        }
+    }
+}
+
+pub fn parse_move(position: &mut board::Position, move_string: &str) -> Option<chess::Move> {
+    let moves = position.generate_moves();
+
+    for m in moves {
+        if m.to_string() == move_string {
+            return Some(m);
         }
     }
 
-    fn handle_position_command(&mut self, tokens: Vec<&str>) {
-        if tokens.len() < 2 {
-            return;
-        }
+    return None;
+}
 
-        if tokens[1] == "startpos" {
-            self.position.set_fen(chess::constants::STARTING_FEN);
-
-            if tokens.len() > 2 && tokens[2] == "moves" {
-                self.parse_and_make_moves(tokens[3..].to_vec());
-            }
-        }
-
-        if tokens[1] == "fen" {
-            if tokens.len() < 8 {
-                return;
-            }
-
-            let mut fen = String::new();
-            for i in 2..8 {
-                fen.push_str(tokens[i]);
-                fen.push_str(" ");
-            }
-            fen.pop();
-
-            self.position.set_fen(fen.as_str());
-
-            if tokens.len() > 8 && tokens[8] == "moves" {
-                self.parse_and_make_moves(tokens[9..].to_vec());
-            }
-        }
-    }
+fn sleep(ms: u64) {
+    std::thread::sleep(std::time::Duration::from_millis(ms));
 }

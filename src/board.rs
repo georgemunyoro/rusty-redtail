@@ -1,7 +1,5 @@
-use core::panic;
-
 use crate::{
-    chess,
+    chess, pst,
     utils::{self, pop_lsb},
 };
 
@@ -177,7 +175,6 @@ pub struct Position {
     pub magic_bishop_attacks: Vec<Vec<u64>>,
     pub magic_rook_attacks: Vec<Vec<u64>>,
 
-    pub history: Vec<chess::Move>,
     pub position_stack: Vec<HistoryEntry>,
 
     pub rand_seed: u32,
@@ -190,6 +187,7 @@ pub struct Position {
     pub zobrist_turn_key: u64,
 
     pub hash: u64,
+    pub material: [i32; 2],
 }
 
 pub struct HistoryEntry {
@@ -197,6 +195,7 @@ pub struct HistoryEntry {
     pub turn: chess::Color,
     pub enpassant: Option<chess::Square>,
     pub castling: chess::CastlingRights,
+    pub material: [i32; 2],
 
     pub halfmove_clock: u32,
     pub fullmove_number: u32,
@@ -206,7 +205,7 @@ pub struct HistoryEntry {
 pub trait Board {
     fn new(fen: Option<&str>) -> Position;
     fn draw(&mut self);
-    fn set_fen(&mut self, fen: &str);
+    fn set_fen(&mut self, fen: String);
     fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool;
 
     fn is_in_check(&self) -> bool;
@@ -231,7 +230,7 @@ impl Board for Position {
     fn new(fen: Option<&str>) -> Position {
         let mut pos = Position {
             bitboards: [0; 12],
-            turn: chess::Color::Both,
+            turn: chess::Color::White,
 
             pawn_attacks: [[0; 64]; 2],
             knight_attacks: [0; 64],
@@ -247,18 +246,11 @@ impl Board for Position {
             magic_rook_attacks: vec![vec![0; 4096]; 64],
 
             enpassant: None,
-            castling: chess::CastlingRights {
-                white_king_side: false,
-                white_queen_side: false,
-                black_king_side: false,
-                black_queen_side: false,
-            },
+            castling: chess::CastlingRights::new(),
             halfmove_clock: 0,
             fullmove_number: 1,
 
             rand_seed: 1804289383,
-
-            history: Vec::with_capacity(512),
 
             position_stack: Vec::with_capacity(512),
 
@@ -270,6 +262,7 @@ impl Board for Position {
             zobrist_turn_key: 0,
 
             hash: 0,
+            material: [0, 0],
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -282,7 +275,7 @@ impl Board for Position {
         pos.update_hash();
 
         match fen {
-            Some(p) => Position::set_fen(&mut pos, p),
+            Some(p) => Position::set_fen(&mut pos, String::from(p)),
             None => {}
         }
 
@@ -337,28 +330,35 @@ impl Board for Position {
         fen.push_str(match self.turn {
             chess::Color::White => "w",
             chess::Color::Black => "b",
-            _ => panic!("Invalid color"),
         });
 
         // Castling availability
         fen.push(' ');
-        if self.castling.white_king_side {
+        if self
+            .castling
+            .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
+        {
             fen.push('K');
         }
-        if self.castling.white_queen_side {
+        if self
+            .castling
+            .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
+        {
             fen.push('Q');
         }
-        if self.castling.black_king_side {
+        if self
+            .castling
+            .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
+        {
             fen.push('k');
         }
-        if self.castling.black_queen_side {
+        if self
+            .castling
+            .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
+        {
             fen.push('q');
         }
-        if !self.castling.white_king_side
-            && !self.castling.white_queen_side
-            && !self.castling.black_king_side
-            && !self.castling.black_queen_side
-        {
+        if self.castling.get_rights_u8() == 0 {
             fen.push('-');
         }
 
@@ -394,7 +394,7 @@ impl Board for Position {
     }
 
     /// Sets the board to the given FEN string
-    fn set_fen(&mut self, fen: &str) {
+    fn set_fen(&mut self, fen: String) {
         // Split the fen
         let sections = fen.split(' ').collect::<Vec<&str>>();
 
@@ -416,6 +416,14 @@ impl Board for Position {
             }
 
             utils::set_bit(&mut self.bitboards[chess::Piece::from(c) as usize], pos);
+            let piece_color = if c.is_uppercase() {
+                chess::Color::White
+            } else {
+                chess::Color::Black
+            };
+
+            self.material[piece_color as usize] +=
+                _get_piece_value(chess::Piece::from(c), pos as usize);
 
             pos += 1;
         }
@@ -444,22 +452,38 @@ impl Board for Position {
 
     /// Returns true if the given square is attacked by the given color
     fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool {
-        // attacked by white pawns
-        if (color == chess::Color::White)
-            && (self.pawn_attacks[chess::Color::Black as usize][square as usize]
+        if color == chess::Color::White {
+            // attacked by white pawns
+            if (self.pawn_attacks[chess::Color::Black as usize][square as usize]
                 & self.bitboards[chess::Piece::WhitePawn as usize])
                 != 0
-        {
-            return true;
-        }
+            {
+                return true;
+            }
 
-        // attacked by black pawns
-        if (color == chess::Color::Black)
-            && (self.pawn_attacks[chess::Color::White as usize][square as usize]
+            // attackd by white bishops
+            if self.get_bishop_magic_attacks(square, self.get_both_occupancy())
+                & self.bitboards[chess::Piece::WhiteBishop as usize]
+                != 0
+            {
+                return true;
+            }
+        } else {
+            // attacked by black pawns
+            if (self.pawn_attacks[chess::Color::White as usize][square as usize]
                 & self.bitboards[chess::Piece::BlackPawn as usize])
                 != 0
-        {
-            return true;
+            {
+                return true;
+            }
+
+            // attackd by black bishops
+            if self.get_bishop_magic_attacks(square, self.get_both_occupancy())
+                & self.bitboards[chess::Piece::BlackBishop as usize]
+                != 0
+            {
+                return true;
+            }
         }
 
         // attacked by knights
@@ -478,7 +502,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackBishop
         };
-        if (self.get_bishop_magic_attacks(square, self.get_occupancy(chess::Color::Both))
+        if (self.get_bishop_magic_attacks(square, self.get_both_occupancy())
             & self.bitboards[bishop_piece as usize])
             != 0
         {
@@ -491,7 +515,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackRook
         };
-        if (self.get_rook_magic_attacks(square, self.get_occupancy(chess::Color::Both))
+        if (self.get_rook_magic_attacks(square, self.get_both_occupancy())
             & self.bitboards[rook_piece as usize])
             != 0
         {
@@ -504,7 +528,7 @@ impl Board for Position {
         } else {
             chess::Piece::BlackQueen
         };
-        if (self.get_queen_magic_attacks(square, self.get_occupancy(chess::Color::Both))
+        if (self.get_queen_magic_attacks(square, self.get_both_occupancy())
             & self.bitboards[queen_piece as usize])
             != 0
         {
@@ -525,172 +549,212 @@ impl Board for Position {
     }
 
     fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool {
-        if !only_captures {
-            // add the move to the history
-            let history_entry = self.to_history_entry();
-            self.position_stack.push(history_entry);
+        let is_capture = m.capture.is_some();
 
-            // set the moving piece
-            utils::set_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
-            // remove the moving piece
-            utils::clear_bit(&mut self.bitboards[m.piece as usize], m.from as u8);
+        if only_captures && !is_capture {
+            return false;
+        }
 
-            // handle captures
-            match m.capture {
-                None => {}
-                Some(captured_piece) => {
-                    // remove the captured piece
-                    utils::clear_bit(&mut self.bitboards[captured_piece as usize], m.to as u8);
-                }
-            }
+        // add the move to the history
+        let history_entry = self.to_history_entry();
+        self.position_stack.push(history_entry);
 
-            // handle promotions
-            match m.promotion {
-                None => {}
-                Some(promotion_piece) => {
-                    // remove the pawn
-                    utils::clear_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
-                    // add the promoted piece
-                    utils::set_bit(&mut self.bitboards[promotion_piece as usize], m.to as u8);
-                }
-            }
+        // set the moving piece
+        utils::set_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
+        self.material[self.turn as usize] += _get_piece_value(m.piece, m.to as usize);
 
-            // handle en passant
-            if m.en_passant {
-                let en_captured_square = if self.turn == chess::Color::White {
-                    (m.to as u8) + 8
-                } else {
-                    (m.to as u8) - 8
-                };
+        // remove the moving piece
+        utils::clear_bit(&mut self.bitboards[m.piece as usize], m.from as u8);
+        self.material[self.turn as usize] -= _get_piece_value(m.piece, m.from as usize);
 
-                let en_captured_piece = self.get_piece_at_square(en_captured_square);
+        // handle captures
+        if is_capture {
+            let captured_piece = m.capture.unwrap();
+            // remove the captured piece
+            utils::clear_bit(&mut self.bitboards[captured_piece as usize], m.to as u8);
+            self.material[!self.turn as usize] -= _get_piece_value(captured_piece, m.to as usize);
+        }
 
-                if en_captured_piece != chess::Piece::Empty {
-                    // remove the captured pawn
-                    utils::clear_bit(
-                        &mut self.bitboards[en_captured_piece as usize],
-                        en_captured_square,
-                    );
-                }
-            }
-
-            self.enpassant = None;
-
-            // handle setting the en passant square during double pawn pushes
-            if m.piece == chess::Piece::WhitePawn || m.piece == chess::Piece::BlackPawn {
-                if m.from as i8 - m.to as i8 == 16 {
-                    self.enpassant = Some(chess::Square::from(m.from as u8 - 8));
-                } else if m.from as i8 - m.to as i8 == -16 {
-                    self.enpassant = Some(chess::Square::from(m.from as u8 + 8));
-                }
-            }
-
-            // handle castling
-            if m.castle {
-                match m.to {
-                    chess::Square::C1 => {
-                        // white queen side
-                        utils::clear_bit(
-                            &mut self.bitboards[chess::Piece::WhiteRook as usize],
-                            chess::Square::A1 as u8,
-                        );
-                        utils::set_bit(
-                            &mut self.bitboards[chess::Piece::WhiteRook as usize],
-                            chess::Square::D1 as u8,
-                        );
-                    }
-                    chess::Square::G1 => {
-                        // white king side
-                        utils::clear_bit(
-                            &mut self.bitboards[chess::Piece::WhiteRook as usize],
-                            chess::Square::H1 as u8,
-                        );
-                        utils::set_bit(
-                            &mut self.bitboards[chess::Piece::WhiteRook as usize],
-                            chess::Square::F1 as u8,
-                        );
-                    }
-                    chess::Square::C8 => {
-                        // black queen side
-                        utils::clear_bit(
-                            &mut self.bitboards[chess::Piece::BlackRook as usize],
-                            chess::Square::A8 as u8,
-                        );
-                        utils::set_bit(
-                            &mut self.bitboards[chess::Piece::BlackRook as usize],
-                            chess::Square::D8 as u8,
-                        );
-                    }
-                    chess::Square::G8 => {
-                        // black king side
-                        utils::clear_bit(
-                            &mut self.bitboards[chess::Piece::BlackRook as usize],
-                            chess::Square::H8 as u8,
-                        );
-                        utils::set_bit(
-                            &mut self.bitboards[chess::Piece::BlackRook as usize],
-                            chess::Square::F8 as u8,
-                        );
-                    }
-                    _ => {}
-                }
-            }
-
-            if m.piece == chess::Piece::WhiteKing {
-                self.castling.white_king_side = false;
-                self.castling.white_queen_side = false;
-            } else if m.piece == chess::Piece::BlackKing {
-                self.castling.black_king_side = false;
-                self.castling.black_queen_side = false;
-            }
-
-            // first move of a rook disables castling
-            if m.piece == chess::Piece::WhiteRook
-                && m.from == chess::Square::A1
-                && self.castling.white_queen_side
-            {
-                self.castling.white_queen_side = false;
-            }
-
-            if m.piece == chess::Piece::WhiteRook
-                && m.from == chess::Square::H1
-                && self.castling.white_king_side
-            {
-                self.castling.white_king_side = false;
-            }
-
-            if m.piece == chess::Piece::BlackRook
-                && m.from == chess::Square::A8
-                && self.castling.black_queen_side
-            {
-                self.castling.black_queen_side = false;
-            }
-
-            if m.piece == chess::Piece::BlackRook
-                && m.from == chess::Square::H8
-                && self.castling.black_king_side
-            {
-                self.castling.black_king_side = false;
-            }
-
-            self.update_occupancies();
-
-            // ensure the king is not in check
-            if self.is_in_check() {
-                self.unmake_move();
-                return false;
-            }
-
-            self.turn = !self.turn;
-            self.update_hash();
-
-            return true;
-        } else {
-            match m.capture {
-                None => return false,
-                _ => return self.make_move(m, false),
+        // handle promotions
+        match m.promotion {
+            None => {}
+            Some(promotion_piece) => {
+                // remove the pawn
+                utils::clear_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
+                self.material[self.turn as usize] -= _get_piece_value(m.piece, m.to as usize);
+                // add the promoted piece
+                utils::set_bit(&mut self.bitboards[promotion_piece as usize], m.to as u8);
+                self.material[self.turn as usize] +=
+                    _get_piece_value(promotion_piece, m.to as usize);
             }
         }
+
+        // handle en passant
+        if m.en_passant {
+            let en_captured_square = if self.turn == chess::Color::White {
+                (m.to as u8) + 8
+            } else {
+                (m.to as u8) - 8
+            };
+
+            let en_captured_piece = self.get_piece_at_square(en_captured_square);
+
+            if en_captured_piece != chess::Piece::Empty {
+                // remove the captured pawn
+                utils::clear_bit(
+                    &mut self.bitboards[en_captured_piece as usize],
+                    en_captured_square,
+                );
+                self.material[!self.turn as usize] -=
+                    _get_piece_value(en_captured_piece, en_captured_square as usize);
+            }
+        }
+
+        self.enpassant = None;
+
+        // handle setting the en passant square during double pawn pushes
+        if m.piece == chess::Piece::WhitePawn || m.piece == chess::Piece::BlackPawn {
+            if m.from as i8 - m.to as i8 == 16 {
+                self.enpassant = Some(chess::Square::from(m.from as u8 - 8));
+            } else if m.from as i8 - m.to as i8 == -16 {
+                self.enpassant = Some(chess::Square::from(m.from as u8 + 8));
+            }
+        }
+
+        // handle castling
+        if m.castle {
+            match m.to {
+                chess::Square::C1 => {
+                    // white queen side
+                    utils::clear_bit(
+                        &mut self.bitboards[chess::Piece::WhiteRook as usize],
+                        chess::Square::A1 as u8,
+                    );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::A1 as usize);
+
+                    utils::set_bit(
+                        &mut self.bitboards[chess::Piece::WhiteRook as usize],
+                        chess::Square::D1 as u8,
+                    );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::D1 as usize);
+                }
+                chess::Square::G1 => {
+                    // white king side
+                    utils::clear_bit(
+                        &mut self.bitboards[chess::Piece::WhiteRook as usize],
+                        chess::Square::H1 as u8,
+                    );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::H1 as usize);
+
+                    utils::set_bit(
+                        &mut self.bitboards[chess::Piece::WhiteRook as usize],
+                        chess::Square::F1 as u8,
+                    );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::F1 as usize);
+                }
+                chess::Square::C8 => {
+                    // black queen side
+                    utils::clear_bit(
+                        &mut self.bitboards[chess::Piece::BlackRook as usize],
+                        chess::Square::A8 as u8,
+                    );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(chess::Piece::BlackRook, chess::Square::A8 as usize);
+
+                    utils::set_bit(
+                        &mut self.bitboards[chess::Piece::BlackRook as usize],
+                        chess::Square::D8 as u8,
+                    );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(chess::Piece::BlackRook, chess::Square::D8 as usize);
+                }
+                chess::Square::G8 => {
+                    // black king side
+                    utils::clear_bit(
+                        &mut self.bitboards[chess::Piece::BlackRook as usize],
+                        chess::Square::H8 as u8,
+                    );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(chess::Piece::BlackRook, chess::Square::H8 as usize);
+
+                    utils::set_bit(
+                        &mut self.bitboards[chess::Piece::BlackRook as usize],
+                        chess::Square::F8 as u8,
+                    );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(chess::Piece::BlackRook, chess::Square::F8 as usize);
+                }
+                _ => {}
+            }
+        }
+
+        if m.piece == chess::Piece::WhiteKing {
+            self.castling.remove_right(
+                chess::CastlingRights::WHITE_KINGSIDE | chess::CastlingRights::WHITE_QUEENSIDE,
+            );
+        } else if m.piece == chess::Piece::BlackKing {
+            self.castling.remove_right(
+                chess::CastlingRights::BLACK_KINGSIDE | chess::CastlingRights::BLACK_QUEENSIDE,
+            );
+        }
+
+        // First move of a rook disables castling
+        if m.piece == chess::Piece::WhiteRook
+            && m.from == chess::Square::A1
+            && self
+                .castling
+                .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
+        {
+            self.castling
+                .remove_right(chess::CastlingRights::WHITE_QUEENSIDE);
+        }
+
+        if m.piece == chess::Piece::WhiteRook
+            && m.from == chess::Square::H1
+            && self
+                .castling
+                .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
+        {
+            self.castling
+                .remove_right(chess::CastlingRights::WHITE_KINGSIDE);
+        }
+
+        if m.piece == chess::Piece::BlackRook
+            && m.from == chess::Square::A8
+            && self
+                .castling
+                .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
+        {
+            self.castling
+                .remove_right(chess::CastlingRights::BLACK_QUEENSIDE);
+        }
+
+        if m.piece == chess::Piece::BlackRook
+            && m.from == chess::Square::H8
+            && self
+                .castling
+                .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
+        {
+            self.castling
+                .remove_right(chess::CastlingRights::BLACK_KINGSIDE);
+        }
+
+        self.update_occupancies();
+
+        // ensure the king is not in check
+        if self.is_in_check() {
+            self.unmake_move();
+            return false;
+        }
+
+        self.turn = !self.turn;
+        self.update_hash();
+
+        return true;
     }
 
     fn unmake_move(&mut self) {
@@ -717,7 +781,7 @@ impl Position {
             hash ^= self.zobrist_enpassant_keys[self.enpassant.unwrap() as usize];
         }
 
-        hash ^= self.zobrist_castling_keys[usize::from(self.castling)];
+        hash ^= self.zobrist_castling_keys[self.castling.get_rights_u8() as usize];
 
         if self.turn == chess::Color::Black {
             hash ^= self.zobrist_turn_key;
@@ -757,6 +821,7 @@ impl Position {
             halfmove_clock: self.halfmove_clock,
             fullmove_number: self.fullmove_number,
             occupancies: self.occupancies,
+            material: self.material,
         };
     }
 
@@ -764,7 +829,6 @@ impl Position {
     fn update_occupancies(&mut self) {
         self.occupancies[chess::Color::Black as usize] = self.get_occupancy(chess::Color::Black);
         self.occupancies[chess::Color::White as usize] = self.get_occupancy(chess::Color::White);
-        self.occupancies[chess::Color::Both as usize] = self.get_occupancy(chess::Color::Both);
     }
 
     pub fn apply_history_entry(&mut self, entry: HistoryEntry) {
@@ -775,6 +839,7 @@ impl Position {
         self.halfmove_clock = entry.halfmove_clock;
         self.fullmove_number = entry.fullmove_number;
         self.occupancies = entry.occupancies;
+        self.material = entry.material;
     }
 
     pub fn get_piece_at_square(&self, square: u8) -> chess::Piece {
@@ -1255,6 +1320,21 @@ impl Position {
 
         return white_occupancy | black_occupancy;
     }
+
+    pub fn get_both_occupancy(&self) -> u64 {
+        let mut white_occupancy = 0u64;
+        let mut black_occupancy = 0u64;
+
+        for piece in (chess::Piece::WhitePawn as u8)..=(chess::Piece::WhiteKing as u8) {
+            white_occupancy |= self.bitboards[piece as usize];
+        }
+
+        for piece in (chess::Piece::BlackPawn as u8)..=(chess::Piece::BlackKing as u8) {
+            black_occupancy |= self.bitboards[piece as usize];
+        }
+
+        return white_occupancy | black_occupancy;
+    }
 }
 
 #[cfg(test)]
@@ -1263,6 +1343,18 @@ mod tests {
         board::{constants, Board, Position},
         chess::{self, Piece},
     };
+
+    #[bench]
+    fn bench_is_square_attacked(b: &mut test::Bencher) {
+        let position = Position::new(Some(chess::constants::STARTING_FEN));
+
+        b.iter(|| {
+            for i in 0..64 {
+                position.is_square_attacked(chess::Square::from(i as usize), chess::Color::White);
+                position.is_square_attacked(chess::Square::from(i as usize), chess::Color::Black);
+            }
+        });
+    }
 
     #[test]
     fn get_piece_at_square_and_set_fen_works() {
@@ -1326,6 +1418,58 @@ mod tests {
                 magic_number,
                 constants::BISHOP_MAGIC_NUMBERS[usize::from(u8::from(square))]
             );
+        }
+    }
+}
+
+pub fn _get_piece_value(piece: chess::Piece, square: usize) -> i32 {
+    if (piece as usize) < (chess::Piece::BlackPawn as usize) {
+        match piece {
+            chess::Piece::WhitePawn => {
+                return pst::PAWN_POSITIONAL_SCORE[square] + 100;
+            }
+            chess::Piece::WhiteKnight => {
+                return pst::KNIGHT_POSITIONAL_SCORE[square] + 300;
+            }
+            chess::Piece::WhiteBishop => {
+                return pst::BISHOP_POSITIONAL_SCORE[square] + 350;
+            }
+            chess::Piece::WhiteRook => {
+                return pst::ROOK_POSITIONAL_SCORE[square] + 500;
+            }
+            chess::Piece::WhiteQueen => {
+                return pst::ROOK_POSITIONAL_SCORE[square]
+                    + pst::BISHOP_POSITIONAL_SCORE[square]
+                    + 1000;
+            }
+            chess::Piece::WhiteKing => {
+                return pst::KING_POSITIONAL_SCORE[square] + 10000;
+            }
+            _ => return 0,
+        };
+    } else {
+        match piece {
+            chess::Piece::BlackPawn => {
+                return pst::PAWN_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 100;
+            }
+            chess::Piece::BlackKnight => {
+                return pst::KNIGHT_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 300;
+            }
+            chess::Piece::BlackBishop => {
+                return pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 350;
+            }
+            chess::Piece::BlackRook => {
+                return pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 500;
+            }
+            chess::Piece::BlackQueen => {
+                return (pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
+                    + pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize])
+                    + 1000;
+            }
+            chess::Piece::BlackKing => {
+                return pst::KING_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 10000;
+            }
+            _ => return 0,
         }
     }
 }

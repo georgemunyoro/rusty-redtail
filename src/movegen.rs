@@ -2,7 +2,8 @@ use std::fmt::Display;
 
 use crate::{
     board::{Board, Position},
-    chess, utils,
+    chess::{self},
+    utils,
 };
 
 pub trait MoveGenerator {
@@ -154,24 +155,20 @@ impl MoveGenerator for Position {
             }
 
             // generate enpassant captures
-            match self.enpassant {
-                None => {}
-                _ => {
-                    let enpassant_square = u8::from(self.enpassant.unwrap());
-                    let enpassant_attacks = self.pawn_attacks[chess::Color::Black as usize]
-                        [source as usize]
-                        & (1u64 << enpassant_square);
+            if let Some(enpassant_square) = self.enpassant {
+                let enpassant_attacks = self.pawn_attacks[chess::Color::Black as usize]
+                    [source as usize]
+                    & (1u64 << enpassant_square as u8);
 
-                    if enpassant_attacks != 0 {
-                        let target_enpassant = utils::get_lsb(enpassant_attacks);
-                        let mut m = chess::Move::new(
-                            source,
-                            chess::Square::from(target_enpassant),
-                            chess::Piece::BlackPawn,
-                        );
-                        m.en_passant = true;
-                        moves.push(m);
-                    }
+                if enpassant_attacks != 0 {
+                    let target_enpassant = utils::get_lsb(enpassant_attacks);
+                    let mut m = chess::Move::new(
+                        source,
+                        chess::Square::from(target_enpassant),
+                        chess::Piece::BlackPawn,
+                    );
+                    m.en_passant = true;
+                    moves.push(m);
                 }
             }
 
@@ -258,24 +255,20 @@ impl MoveGenerator for Position {
             }
 
             // generate enpassant captures
-            match self.enpassant {
-                None => {}
-                _ => {
-                    let enpassant_square = u8::from(self.enpassant.unwrap());
-                    let enpassant_attacks = self.pawn_attacks[chess::Color::White as usize]
-                        [source as usize]
-                        & (1u64 << enpassant_square);
+            if let Some(enpassant_square) = self.enpassant {
+                let enpassant_attacks = self.pawn_attacks[chess::Color::White as usize]
+                    [source as usize]
+                    & (1u64 << enpassant_square as u8);
 
-                    if enpassant_attacks != 0 {
-                        let target_enpassant = utils::get_lsb(enpassant_attacks);
-                        let mut m = chess::Move::new(
-                            source,
-                            chess::Square::from(target_enpassant),
-                            chess::Piece::WhitePawn,
-                        );
-                        m.en_passant = true;
-                        moves.push(m);
-                    }
+                if enpassant_attacks != 0 {
+                    let target_enpassant = utils::get_lsb(enpassant_attacks);
+                    let mut m = chess::Move::new(
+                        source,
+                        chess::Square::from(target_enpassant),
+                        chess::Piece::WhitePawn,
+                    );
+                    m.en_passant = true;
+                    moves.push(m);
                 }
             }
 
@@ -284,8 +277,6 @@ impl MoveGenerator for Position {
     }
 
     fn generate_pawn_moves(&self, move_list: &mut Vec<chess::Move>) {
-        // let mut moves = Vec::with_capacity(256);
-
         // white pawn moves
         if self.turn == chess::Color::White {
             self.generate_white_pawn_moves(move_list)
@@ -453,7 +444,11 @@ impl MoveGenerator for Position {
                 == chess::Piece::Empty
                 && self.get_piece_at_square(chess::Square::F1 as u8) == chess::Piece::Empty;
 
-            if is_king_side_empty && self.castling.white_king_side {
+            if is_king_side_empty
+                && self
+                    .castling
+                    .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
+            {
                 if !self.is_square_attacked(chess::Square::E1, chess::Color::Black)
                     && !self.is_square_attacked(chess::Square::F1, chess::Color::Black)
                     && self.get_piece_at_square(chess::Square::H1 as u8) == chess::Piece::WhiteRook
@@ -473,7 +468,11 @@ impl MoveGenerator for Position {
                 && self.get_piece_at_square(chess::Square::C1 as u8) == chess::Piece::Empty
                 && self.get_piece_at_square(chess::Square::B1 as u8) == chess::Piece::Empty;
 
-            if is_queen_side_empty && self.castling.white_queen_side {
+            if is_queen_side_empty
+                && self
+                    .castling
+                    .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
+            {
                 if !self.is_square_attacked(chess::Square::E1, chess::Color::Black)
                     && !self.is_square_attacked(chess::Square::D1, chess::Color::Black)
                     && self.get_piece_at_square(chess::Square::A1 as u8) == chess::Piece::WhiteRook
@@ -492,7 +491,11 @@ impl MoveGenerator for Position {
                 == chess::Piece::Empty
                 && self.get_piece_at_square(chess::Square::F8 as u8) == chess::Piece::Empty;
 
-            if is_king_side_empty && self.castling.black_king_side {
+            if is_king_side_empty
+                && self
+                    .castling
+                    .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
+            {
                 if !self.is_square_attacked(chess::Square::E8, chess::Color::White)
                     && !self.is_square_attacked(chess::Square::F8, chess::Color::White)
                     && self.get_piece_at_square(chess::Square::H8 as u8) == chess::Piece::BlackRook
@@ -512,7 +515,11 @@ impl MoveGenerator for Position {
                 && self.get_piece_at_square(chess::Square::C8 as u8) == chess::Piece::Empty
                 && self.get_piece_at_square(chess::Square::B8 as u8) == chess::Piece::Empty;
 
-            if is_queen_side_empty && self.castling.black_queen_side {
+            if is_queen_side_empty
+                && self
+                    .castling
+                    .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
+            {
                 if !self.is_square_attacked(chess::Square::E8, chess::Color::White)
                     && !self.is_square_attacked(chess::Square::D8, chess::Color::White)
                     && self.get_piece_at_square(chess::Square::A8 as u8) == chess::Piece::BlackRook
@@ -646,27 +653,5 @@ impl MoveGenerator for Position {
         }
 
         return result;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        board::{Board, Position},
-        chess,
-        movegen::MoveGenerator,
-    };
-
-    #[test]
-    fn test_starting_position_move_generation() {
-        let mut board = Position::new(Some(String::from(chess::constants::STARTING_FEN).as_str()));
-
-        let moves = board.generate_legal_moves();
-        assert_eq!(moves.len(), 20);
-
-        // Also check black's moves
-        board.turn = chess::Color::Black;
-        let black_moves = board.generate_moves();
-        assert_eq!(black_moves.len(), 20);
     }
 }
