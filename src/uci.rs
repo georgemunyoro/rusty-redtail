@@ -7,6 +7,7 @@ use crate::{
     board::{self, Board, Position},
     chess, evaluation,
     movegen::MoveGenerator,
+    skaak,
     tt::{self},
 };
 
@@ -244,7 +245,10 @@ pub fn parse_and_make_moves(position: &mut board::Position, moves: Vec<&str>) {
     }
 }
 
-pub fn parse_move(position: &mut board::Position, move_string: &str) -> Option<chess::Move> {
+pub fn parse_move(
+    position: &mut board::Position,
+    move_string: &str,
+) -> Option<skaak::_move::BitPackedMove> {
     let moves = position.generate_moves();
 
     for m in moves {

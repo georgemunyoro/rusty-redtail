@@ -1,5 +1,7 @@
 use std::{cmp::Ordering, fmt::Display, ops::Not};
 
+use crate::skaak;
+
 pub mod constants {
     pub static STARTING_FEN: &'static str =
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -670,18 +672,18 @@ impl From<char> for Piece {
 impl From<Piece> for usize {
     fn from(v: Piece) -> Self {
         match v {
-            Piece::BlackPawn => 0,
-            Piece::BlackKnight => 1,
-            Piece::BlackBishop => 2,
-            Piece::BlackRook => 3,
-            Piece::BlackQueen => 4,
-            Piece::BlackKing => 5,
-            Piece::WhitePawn => 6,
-            Piece::WhiteKnight => 7,
-            Piece::WhiteBishop => 8,
-            Piece::WhiteRook => 9,
-            Piece::WhiteQueen => 10,
-            Piece::WhiteKing => 11,
+            Piece::WhitePawn => 0,
+            Piece::WhiteKnight => 1,
+            Piece::WhiteBishop => 2,
+            Piece::WhiteRook => 3,
+            Piece::WhiteQueen => 4,
+            Piece::WhiteKing => 5,
+            Piece::BlackPawn => 6,
+            Piece::BlackKnight => 7,
+            Piece::BlackBishop => 8,
+            Piece::BlackRook => 9,
+            Piece::BlackQueen => 10,
+            Piece::BlackKing => 11,
             Piece::Empty => 12,
         }
     }
@@ -690,18 +692,18 @@ impl From<Piece> for usize {
 impl From<usize> for Piece {
     fn from(v: usize) -> Self {
         match v {
-            0 => Piece::BlackPawn,
-            1 => Piece::BlackKnight,
-            2 => Piece::BlackBishop,
-            3 => Piece::BlackRook,
-            4 => Piece::BlackQueen,
-            5 => Piece::BlackKing,
-            6 => Piece::WhitePawn,
-            7 => Piece::WhiteKnight,
-            8 => Piece::WhiteBishop,
-            9 => Piece::WhiteRook,
-            10 => Piece::WhiteQueen,
-            11 => Piece::WhiteKing,
+            0 => Piece::WhitePawn,
+            1 => Piece::WhiteKnight,
+            2 => Piece::WhiteBishop,
+            3 => Piece::WhiteRook,
+            4 => Piece::WhiteQueen,
+            5 => Piece::WhiteKing,
+            6 => Piece::BlackPawn,
+            7 => Piece::BlackKnight,
+            8 => Piece::BlackBishop,
+            9 => Piece::BlackRook,
+            10 => Piece::BlackQueen,
+            11 => Piece::BlackKing,
             12 => Piece::Empty,
             _ => panic!("Invalid piece"),
         }
@@ -820,69 +822,6 @@ pub struct Move {
     pub en_passant: bool,
 }
 
-impl Move {
-    pub fn new(from: Square, to: Square, piece: Piece) -> Self {
-        Move {
-            from,
-            to,
-            piece,
-            capture: None,
-            castle: false,
-            promotion: None,
-            en_passant: false,
-        }
-    }
-}
-
-impl Display for Move {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // return the move in long uci notation
-        write!(
-            f,
-            "{}{}{}",
-            self.from.to_string().to_lowercase(),
-            self.to.to_string().to_lowercase(),
-            match self.promotion {
-                Some(p) => get_piece_char(p).to_lowercase().to_string(),
-                None => "".to_string(),
-            },
-        )
-    }
-}
-
-impl Move {
-    /// Returns the move in SAN notation
-    pub fn _as_san(&self) -> String {
-        let piece_symbol = match self.piece {
-            Piece::WhitePawn => "".to_string(),
-            Piece::BlackPawn => "".to_string(),
-            _ => get_piece_char(self.piece).to_string().to_uppercase(),
-        };
-
-        let capture_symbol = match self.capture {
-            Some(_) => "x",
-            None => "",
-        };
-
-        return format!(
-            "{}{}{}",
-            piece_symbol,
-            capture_symbol,
-            self.to.to_string().to_lowercase(),
-        );
-    }
-}
-
-pub static NULL_MOVE: Move = Move {
-    from: Square::NoSq,
-    to: Square::NoSq,
-    piece: Piece::Empty,
-    capture: None,
-    castle: false,
-    promotion: None,
-    en_passant: false,
-};
-
 impl From<&str> for CastlingRights {
     fn from(v: &str) -> Self {
         let mut castling_rights = CastlingRights::new_empty();
@@ -924,7 +863,7 @@ mod tests {
 
 pub struct PrioritizedMove {
     pub priority: u32,
-    pub m: Move,
+    pub m: skaak::_move::BitPackedMove,
 }
 
 impl PartialEq for PrioritizedMove {

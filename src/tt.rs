@@ -1,7 +1,7 @@
 use crate::{
     board::{Board, Position},
-    chess,
     movegen::MoveGenerator,
+    skaak,
 };
 
 const HASH_SIZE: usize = 0x1000000;
@@ -21,7 +21,7 @@ pub struct TranspositionTableEntry {
     pub depth: u8,
     pub flag: TranspositionTableEntryFlag,
     pub value: i32,
-    pub m: Option<chess::Move>,
+    pub m: Option<skaak::_move::BitPackedMove>,
 }
 
 impl TranspositionTableEntry {
@@ -56,7 +56,7 @@ impl TranspositionTable {
         depth: u8,
         flag: TranspositionTableEntryFlag,
         value: i32,
-        m: Option<chess::Move>,
+        m: Option<skaak::_move::BitPackedMove>,
     ) {
         let hash_index = key as usize & (HASH_SIZE - 1);
 
