@@ -429,13 +429,14 @@ impl Evaluator {
             }
 
             print!(
-                "info score {} {} depth {} nodes {} nps {} time {}",
+                "info score {} {} depth {} nodes {} nps {} time {} hashfull {}",
                 if is_mate { "mate" } else { "cp" },
                 if is_mate { mate_in } else { score },
                 self.result.depth,
                 self.result.nodes,
                 nps,
-                stop_time - start_time
+                stop_time - start_time,
+                self.tt.lock().unwrap().get_hashfull()
             );
 
             let mut pv_str: String = String::new();

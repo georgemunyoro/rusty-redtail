@@ -38,12 +38,14 @@ impl TranspositionTableEntry {
 
 pub struct TranspositionTable {
     table: Vec<TranspositionTableEntry>,
+    size: u64,
 }
 
 impl TranspositionTable {
     pub fn new() -> TranspositionTable {
         return TranspositionTable {
             table: vec![TranspositionTableEntry::new(); HASH_SIZE],
+            size: 0,
         };
     }
 
@@ -56,7 +58,13 @@ impl TranspositionTable {
         value: i32,
         m: Option<chess::Move>,
     ) {
-        self.table[key as usize & (HASH_SIZE - 1)] = TranspositionTableEntry {
+        let hash_index = key as usize & (HASH_SIZE - 1);
+
+        if self.table[hash_index].key == 0 {
+            self.size += 1;
+        }
+
+        self.table[hash_index] = TranspositionTableEntry {
             key,
             depth,
             flag,
@@ -101,25 +109,27 @@ impl TranspositionTable {
         return None;
     }
 
+    pub fn get_hashfull(&self) -> u32 {
+        return (self.size as f32 / HASH_SIZE as f32 * 1000.0) as u32;
+    }
+
     pub fn get_pv_line(&self, position: &mut Position) -> Vec<TranspositionTableEntry> {
         let mut pv_line: Vec<TranspositionTableEntry> = Vec::new();
-
         let mut positions_encountered: Vec<u64> = Vec::new();
 
         loop {
             let entry: TranspositionTableEntry =
                 self.table[position.hash as usize & (HASH_SIZE - 1)];
 
-            if entry.key != position.hash || entry.m.is_none() || pv_line.len() > 64 {
-                break;
-            }
-
-            if positions_encountered.contains(&position.hash) {
+            if entry.key != position.hash
+                || entry.m.is_none()
+                || pv_line.len() > 64
+                || positions_encountered.contains(&position.hash)
+            {
                 break;
             }
 
             positions_encountered.push(position.hash);
-
             pv_line.push(entry);
             position.make_move(entry.m.unwrap(), false);
 
