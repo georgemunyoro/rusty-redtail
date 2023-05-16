@@ -655,3 +655,20 @@ impl MoveGenerator for Position {
         return result;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::board::{self, Board};
+
+    use super::MoveGenerator;
+
+    #[test]
+    fn get_piece_at_square_and_set_fen_works() {
+        let mut position = board::Position::new(Some(crate::chess::constants::STARTING_FEN));
+        assert!(position.perft(0) == 1);
+        assert!(position.perft(1) == 20);
+        assert!(position.perft(2) == 400);
+        assert!(position.perft(3) == 8902);
+        assert!(position.perft(4) == 197281);
+    }
+}
