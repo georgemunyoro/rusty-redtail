@@ -207,6 +207,7 @@ pub trait Board {
     fn draw(&mut self);
     fn set_fen(&mut self, fen: String);
     fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool;
+    fn get_game_phase_score(&self) -> u64;
 
     fn is_in_check(&self) -> bool;
 
@@ -422,8 +423,11 @@ impl Board for Position {
                 chess::Color::Black
             };
 
-            self.material[piece_color as usize] +=
-                _get_piece_value(chess::Piece::from(c), pos as usize);
+            self.material[piece_color as usize] += _get_piece_value(
+                chess::Piece::from(c),
+                pos as usize,
+                self.get_game_phase_score(),
+            );
 
             pos += 1;
         }
@@ -548,6 +552,22 @@ impl Board for Position {
         return false;
     }
 
+    fn get_game_phase_score(&self) -> u64 {
+        (4 * utils::count_bits(
+            self.bitboards[chess::Piece::BlackBishop as usize]
+                | self.bitboards[chess::Piece::WhiteBishop as usize],
+        )) + (4 * utils::count_bits(
+            self.bitboards[chess::Piece::BlackKnight as usize]
+                | self.bitboards[chess::Piece::WhiteKnight as usize],
+        )) + (4 * utils::count_bits(
+            self.bitboards[chess::Piece::BlackRook as usize]
+                | self.bitboards[chess::Piece::WhiteRook as usize],
+        )) + (2 * utils::count_bits(
+            self.bitboards[chess::Piece::WhiteQueen as usize]
+                | self.bitboards[chess::Piece::BlackQueen as usize],
+        ))
+    }
+
     fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool {
         let is_capture = m.capture.is_some();
 
@@ -555,24 +575,29 @@ impl Board for Position {
             return false;
         }
 
+        let game_phase_score = self.get_game_phase_score();
+
         // add the move to the history
         let history_entry = self.to_history_entry();
         self.position_stack.push(history_entry);
 
         // set the moving piece
         utils::set_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
-        self.material[self.turn as usize] += _get_piece_value(m.piece, m.to as usize);
+        self.material[self.turn as usize] +=
+            _get_piece_value(m.piece, m.to as usize, game_phase_score);
 
         // remove the moving piece
         utils::clear_bit(&mut self.bitboards[m.piece as usize], m.from as u8);
-        self.material[self.turn as usize] -= _get_piece_value(m.piece, m.from as usize);
+        self.material[self.turn as usize] -=
+            _get_piece_value(m.piece, m.from as usize, game_phase_score);
 
         // handle captures
         if is_capture {
             let captured_piece = m.capture.unwrap();
             // remove the captured piece
             utils::clear_bit(&mut self.bitboards[captured_piece as usize], m.to as u8);
-            self.material[!self.turn as usize] -= _get_piece_value(captured_piece, m.to as usize);
+            self.material[!self.turn as usize] -=
+                _get_piece_value(captured_piece, m.to as usize, game_phase_score);
         }
 
         // handle promotions
@@ -581,11 +606,12 @@ impl Board for Position {
             Some(promotion_piece) => {
                 // remove the pawn
                 utils::clear_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
-                self.material[self.turn as usize] -= _get_piece_value(m.piece, m.to as usize);
+                self.material[self.turn as usize] -=
+                    _get_piece_value(m.piece, m.to as usize, game_phase_score);
                 // add the promoted piece
                 utils::set_bit(&mut self.bitboards[promotion_piece as usize], m.to as u8);
                 self.material[self.turn as usize] +=
-                    _get_piece_value(promotion_piece, m.to as usize);
+                    _get_piece_value(promotion_piece, m.to as usize, game_phase_score);
             }
         }
 
@@ -605,8 +631,11 @@ impl Board for Position {
                     &mut self.bitboards[en_captured_piece as usize],
                     en_captured_square,
                 );
-                self.material[!self.turn as usize] -=
-                    _get_piece_value(en_captured_piece, en_captured_square as usize);
+                self.material[!self.turn as usize] -= _get_piece_value(
+                    en_captured_piece,
+                    en_captured_square as usize,
+                    game_phase_score,
+                );
             }
         }
 
@@ -630,15 +659,21 @@ impl Board for Position {
                         &mut self.bitboards[chess::Piece::WhiteRook as usize],
                         chess::Square::A1 as u8,
                     );
-                    self.material[self.turn as usize] -=
-                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::A1 as usize);
+                    self.material[self.turn as usize] -= _get_piece_value(
+                        chess::Piece::WhiteRook,
+                        chess::Square::A1 as usize,
+                        game_phase_score,
+                    );
 
                     utils::set_bit(
                         &mut self.bitboards[chess::Piece::WhiteRook as usize],
                         chess::Square::D1 as u8,
                     );
-                    self.material[self.turn as usize] +=
-                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::D1 as usize);
+                    self.material[self.turn as usize] += _get_piece_value(
+                        chess::Piece::WhiteRook,
+                        chess::Square::D1 as usize,
+                        game_phase_score,
+                    );
                 }
                 chess::Square::G1 => {
                     // white king side
@@ -646,15 +681,21 @@ impl Board for Position {
                         &mut self.bitboards[chess::Piece::WhiteRook as usize],
                         chess::Square::H1 as u8,
                     );
-                    self.material[self.turn as usize] -=
-                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::H1 as usize);
+                    self.material[self.turn as usize] -= _get_piece_value(
+                        chess::Piece::WhiteRook,
+                        chess::Square::H1 as usize,
+                        game_phase_score,
+                    );
 
                     utils::set_bit(
                         &mut self.bitboards[chess::Piece::WhiteRook as usize],
                         chess::Square::F1 as u8,
                     );
-                    self.material[self.turn as usize] +=
-                        _get_piece_value(chess::Piece::WhiteRook, chess::Square::F1 as usize);
+                    self.material[self.turn as usize] += _get_piece_value(
+                        chess::Piece::WhiteRook,
+                        chess::Square::F1 as usize,
+                        game_phase_score,
+                    );
                 }
                 chess::Square::C8 => {
                     // black queen side
@@ -662,15 +703,21 @@ impl Board for Position {
                         &mut self.bitboards[chess::Piece::BlackRook as usize],
                         chess::Square::A8 as u8,
                     );
-                    self.material[self.turn as usize] -=
-                        _get_piece_value(chess::Piece::BlackRook, chess::Square::A8 as usize);
+                    self.material[self.turn as usize] -= _get_piece_value(
+                        chess::Piece::BlackRook,
+                        chess::Square::A8 as usize,
+                        game_phase_score,
+                    );
 
                     utils::set_bit(
                         &mut self.bitboards[chess::Piece::BlackRook as usize],
                         chess::Square::D8 as u8,
                     );
-                    self.material[self.turn as usize] +=
-                        _get_piece_value(chess::Piece::BlackRook, chess::Square::D8 as usize);
+                    self.material[self.turn as usize] += _get_piece_value(
+                        chess::Piece::BlackRook,
+                        chess::Square::D8 as usize,
+                        game_phase_score,
+                    );
                 }
                 chess::Square::G8 => {
                     // black king side
@@ -678,15 +725,21 @@ impl Board for Position {
                         &mut self.bitboards[chess::Piece::BlackRook as usize],
                         chess::Square::H8 as u8,
                     );
-                    self.material[self.turn as usize] -=
-                        _get_piece_value(chess::Piece::BlackRook, chess::Square::H8 as usize);
+                    self.material[self.turn as usize] -= _get_piece_value(
+                        chess::Piece::BlackRook,
+                        chess::Square::H8 as usize,
+                        game_phase_score,
+                    );
 
                     utils::set_bit(
                         &mut self.bitboards[chess::Piece::BlackRook as usize],
                         chess::Square::F8 as u8,
                     );
-                    self.material[self.turn as usize] +=
-                        _get_piece_value(chess::Piece::BlackRook, chess::Square::F8 as usize);
+                    self.material[self.turn as usize] += _get_piece_value(
+                        chess::Piece::BlackRook,
+                        chess::Square::F8 as usize,
+                        game_phase_score,
+                    );
                 }
                 _ => {}
             }
@@ -1344,18 +1397,6 @@ mod tests {
         chess::{self, Piece},
     };
 
-    #[bench]
-    fn bench_is_square_attacked(b: &mut test::Bencher) {
-        let position = Position::new(Some(chess::constants::STARTING_FEN));
-
-        b.iter(|| {
-            for i in 0..64 {
-                position.is_square_attacked(chess::Square::from(i as usize), chess::Color::White);
-                position.is_square_attacked(chess::Square::from(i as usize), chess::Color::Black);
-            }
-        });
-    }
-
     #[test]
     fn get_piece_at_square_and_set_fen_works() {
         let position = Position::new(Some(
@@ -1422,52 +1463,67 @@ mod tests {
     }
 }
 
-pub fn _get_piece_value(piece: chess::Piece, square: usize) -> i32 {
+/*
+        Material score values used for tapered evaluation
+
+            Pawn  Knight  Bishop  Rook  Queen  King
+opening  -  82    337     365     477   1025   12000
+endgame  -  94    281     297     512   936    12000
+*/
+pub fn _get_piece_value(piece: chess::Piece, square: usize, phase: u64) -> i32 {
     if (piece as usize) < (chess::Piece::BlackPawn as usize) {
         match piece {
             chess::Piece::WhitePawn => {
-                return pst::PAWN_POSITIONAL_SCORE[square] + 100;
+                return pst::PAWN_POSITIONAL_SCORE[square]
+                    + (((82 * (256 - phase as i32)) + (94 * phase as i32)) / 256);
             }
             chess::Piece::WhiteKnight => {
-                return pst::KNIGHT_POSITIONAL_SCORE[square] + 300;
+                return pst::KNIGHT_POSITIONAL_SCORE[square]
+                    + (((337 * (256 - phase as i32)) + (281 * phase as i32)) / 256);
             }
             chess::Piece::WhiteBishop => {
-                return pst::BISHOP_POSITIONAL_SCORE[square] + 350;
+                return pst::BISHOP_POSITIONAL_SCORE[square]
+                    + (((365 * (256 - phase as i32)) + (297 * phase as i32)) / 256);
             }
             chess::Piece::WhiteRook => {
-                return pst::ROOK_POSITIONAL_SCORE[square] + 500;
+                return pst::ROOK_POSITIONAL_SCORE[square]
+                    + (((477 * (256 - phase as i32)) + (512 * phase as i32)) / 256);
             }
             chess::Piece::WhiteQueen => {
                 return pst::ROOK_POSITIONAL_SCORE[square]
                     + pst::BISHOP_POSITIONAL_SCORE[square]
-                    + 1000;
+                    + (((1025 * (256 - phase as i32)) + (936 * phase as i32)) / 256);
             }
             chess::Piece::WhiteKing => {
-                return pst::KING_POSITIONAL_SCORE[square] + 10000;
+                return pst::KING_POSITIONAL_SCORE[square] + 12000;
             }
             _ => return 0,
         };
     } else {
         match piece {
             chess::Piece::BlackPawn => {
-                return pst::PAWN_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 100;
+                return pst::PAWN_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
+                    + (((82 * (256 - phase as i32)) + (94 * phase as i32)) / 256);
             }
             chess::Piece::BlackKnight => {
-                return pst::KNIGHT_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 300;
+                return pst::KNIGHT_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
+                    + (((337 * (256 - phase as i32)) + (281 * phase as i32)) / 256);
             }
             chess::Piece::BlackBishop => {
-                return pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 350;
+                return pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
+                    + (((365 * (256 - phase as i32)) + (297 * phase as i32)) / 256);
             }
             chess::Piece::BlackRook => {
-                return pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 500;
+                return pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
+                    + (((477 * (256 - phase as i32)) + (512 * phase as i32)) / 256);
             }
             chess::Piece::BlackQueen => {
                 return (pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
                     + pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize])
-                    + 1000;
+                    + (((1025 * (256 - phase as i32)) + (936 * phase as i32)) / 256);
             }
             chess::Piece::BlackKing => {
-                return pst::KING_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 10000;
+                return pst::KING_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 12000;
             }
             _ => return 0,
         }

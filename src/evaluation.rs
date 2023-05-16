@@ -469,7 +469,7 @@ impl Evaluator {
 
         match self.options.movetime {
             Some(movetime) => {
-                if (elapsed + 100) >= movetime as u128 {
+                if (elapsed + 200) >= movetime as u128 {
                     return false;
                 }
             }
