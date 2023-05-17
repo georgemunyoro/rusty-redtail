@@ -7,6 +7,7 @@ use crate::{
     board::{Board, Position},
     chess::{self, PrioritizedMove},
     movegen::MoveGenerator,
+    skaak,
     tt::{self, TranspositionTable},
 };
 
@@ -33,13 +34,13 @@ const _FULL_DEPTH_MOVES: u8 = 3;
 #[derive(Debug)]
 pub struct PositionEvaluation {
     pub score: i32,
-    pub best_move: Option<chess::Move>,
+    pub best_move: Option<skaak::_move::BitPackedMove>,
     pub depth: u8,
     pub ply: u32,
     pub nodes: i32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct SearchOptions {
     pub depth: Option<u8>,
     pub movetime: Option<u32>,
@@ -70,7 +71,7 @@ impl SearchOptions {
 pub struct Evaluator {
     pub running: Arc<Mutex<bool>>,
     pub result: PositionEvaluation,
-    pub killer_moves: [[chess::Move; MAX_PLY]; 2],
+    pub killer_moves: [[skaak::_move::BitPackedMove; MAX_PLY]; 2],
     pub history_moves: [[u32; MAX_PLY]; 12],
     pub started_at: u128,
     pub options: SearchOptions,
@@ -99,7 +100,7 @@ impl Evaluator {
                 ply: 0,
                 nodes: 0,
             },
-            killer_moves: [[chess::NULL_MOVE; MAX_PLY]; 2],
+            killer_moves: [[skaak::_move::BitPackedMove::default(); MAX_PLY]; 2],
             history_moves: [[0; MAX_PLY]; 12],
             started_at: 0,
             options: SearchOptions::new(),
@@ -114,7 +115,8 @@ impl Evaluator {
         options: SearchOptions,
         running: Arc<Mutex<bool>>,
         transposition_table: Arc<Mutex<TranspositionTable>>,
-    ) -> Option<chess::Move> {
+        thread_id: usize,
+    ) -> Option<skaak::_move::BitPackedMove> {
         self.result = PositionEvaluation {
             score: 0,
             best_move: None,
@@ -138,6 +140,8 @@ impl Evaluator {
         let mut current_depth = 1;
 
         let mut pv_line_completed_so_far = Vec::new();
+
+        self.tt.lock().unwrap().age += 1;
 
         loop {
             if current_depth > depth {
@@ -166,17 +170,19 @@ impl Evaluator {
                 break;
             }
 
-            self.print_info(position, start_time);
+            if thread_id == 0 {
+                self.print_info(position, start_time);
+            }
             current_depth += 1;
         }
 
-        let mut b = chess::NULL_MOVE;
+        let mut b = skaak::_move::BitPackedMove::default();
 
         if pv_line_completed_so_far.len() > 0 {
-            b = pv_line_completed_so_far[0].m.unwrap();
-            println!("bestmove {}", pv_line_completed_so_far[0].m.unwrap());
+            b = pv_line_completed_so_far[0].get_move();
+            println!("bestmove {}", pv_line_completed_so_far[0].get_move());
         } else {
-            println!("bestmove {}", chess::NULL_MOVE);
+            println!("bestmove {}", skaak::_move::BitPackedMove::default());
         }
 
         return Some(b);
@@ -192,7 +198,7 @@ impl Evaluator {
     ) -> i32 {
         let mut alpha = _alpha;
         let mut depth = _depth; // will be mutable later for search extensions
-        let mut alpha_move = None;
+        let mut alpha_move = skaak::_move::BitPackedMove::default();
 
         if self.result.nodes & 2047 == 0 {
             self.set_running(self.check_time());
@@ -285,9 +291,8 @@ impl Evaluator {
                     if legal_moves_searched >= _FULL_DEPTH_MOVES
                         && depth >= _REDUCTION_LIMIT
                         && !position.is_in_check()
-                        && pm.m.promotion.is_none()
-                        && pm.m.capture.is_none()
-                        && pm.m.promotion.is_none()
+                        && !pm.m.is_promotion()
+                        && !pm.m.is_capture()
                     {
                         _score = -self.negamax(position, -alpha - 1, -alpha, depth - 2, false);
                     } else {
@@ -322,7 +327,7 @@ impl Evaluator {
                     depth,
                     tt::TranspositionTableEntryFlag::BETA,
                     beta,
-                    Some(pm.m),
+                    pm.m,
                 );
 
                 if self.killer_moves[0][self.result.ply as usize] != pm.m {
@@ -336,7 +341,7 @@ impl Evaluator {
 
             if _score > alpha {
                 hash_f = tt::TranspositionTableEntryFlag::EXACT;
-                alpha_move = Some(pm.m);
+                alpha_move = pm.m;
                 found_pv = true;
                 alpha = _score;
 
@@ -346,7 +351,8 @@ impl Evaluator {
                     self.result.best_move = Some(pm.m);
                 }
 
-                self.history_moves[pm.m.piece as usize][self.result.ply as usize] += depth as u32;
+                self.history_moves[pm.m.get_piece() as usize][self.result.ply as usize] +=
+                    depth as u32;
             }
         }
 
@@ -385,7 +391,7 @@ impl Evaluator {
 
         let mut queue = self.order_moves_p(position.generate_moves(), position);
         while let Some(pm) = queue.pop() {
-            if pm.m.capture.is_none() {
+            if !pm.m.is_capture() {
                 continue;
             }
 
@@ -423,7 +429,7 @@ impl Evaluator {
         let pv_line_found: Vec<tt::TranspositionTableEntry> =
             self.tt.lock().unwrap().get_pv_line(position);
 
-        let score = pv_line_found[0].value;
+        let score = pv_line_found[0].get_value();
 
         if pv_line_found.len() > 0 {
             let is_mate = score > 48000;
@@ -453,7 +459,7 @@ impl Evaluator {
 
             for i in pv_line_found {
                 pv_str.push_str(" ");
-                pv_str.push_str(i.m.unwrap().to_string().as_str());
+                pv_str.push_str(i.get_move().to_string().as_str());
             }
 
             println!(" info pv{}", pv_str);
@@ -522,24 +528,27 @@ impl Evaluator {
     }
 
     /// Returns a score for a move based on various heuristics.
-    fn get_move_priority(&mut self, m: chess::Move, is_following_pv_line: bool) -> u32 {
+    fn get_move_priority(
+        &mut self,
+        m: skaak::_move::BitPackedMove,
+        is_following_pv_line: bool,
+    ) -> u32 {
         if is_following_pv_line {
             return 20000;
         }
 
-        let value: u32 = match m.capture {
-            Some(c) => _MVV_LVA[m.piece as usize][c as usize],
-            None => {
-                if self.killer_moves[0][self.result.ply as usize] == m {
-                    return 9000;
-                }
-
-                if self.killer_moves[1][self.result.ply as usize] == m {
-                    return 9000;
-                }
-
-                return self.history_moves[m.piece as usize][self.result.ply as usize] as u32;
+        let value: u32 = if m.is_capture() {
+            _MVV_LVA[m.get_piece() as usize][m.get_capture() as usize]
+        } else {
+            if self.killer_moves[0][self.result.ply as usize] == m {
+                return 9000;
             }
+
+            if self.killer_moves[1][self.result.ply as usize] == m {
+                return 9000;
+            }
+
+            return self.history_moves[m.get_piece() as usize][self.result.ply as usize] as u32;
         };
 
         return value;
@@ -547,15 +556,15 @@ impl Evaluator {
 
     fn order_moves_p(
         &mut self,
-        moves: Vec<chess::Move>,
+        moves: Vec<skaak::_move::BitPackedMove>,
         position: &mut Position,
     ) -> BinaryHeap<chess::PrioritizedMove> {
         let mut queue: BinaryHeap<PrioritizedMove> = BinaryHeap::with_capacity(moves.len());
 
-        let mut tt_move: chess::Move = chess::NULL_MOVE;
+        let mut tt_move: skaak::_move::BitPackedMove = skaak::_move::BitPackedMove::default();
         if let Some(tt_entry) = self.tt.lock().unwrap().get(position.hash) {
-            if let Some(m) = tt_entry.m {
-                tt_move = m;
+            if tt_entry.get_move() != skaak::_move::BitPackedMove::default() {
+                tt_move = tt_entry.get_move();
             }
         }
 

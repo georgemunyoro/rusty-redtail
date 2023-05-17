@@ -1,5 +1,5 @@
 use crate::{
-    chess, pst,
+    chess, pst, skaak,
     utils::{self, pop_lsb},
 };
 
@@ -211,7 +211,7 @@ pub trait Board {
 
     fn is_in_check(&self) -> bool;
 
-    fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool;
+    fn make_move(&mut self, m: skaak::_move::BitPackedMove, only_captures: bool) -> bool;
     fn unmake_move(&mut self);
     fn make_null_move(&mut self);
 
@@ -568,10 +568,8 @@ impl Board for Position {
         ))
     }
 
-    fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool {
-        let is_capture = m.capture.is_some();
-
-        if only_captures && !is_capture {
+    fn make_move(&mut self, m: skaak::_move::BitPackedMove, only_captures: bool) -> bool {
+        if only_captures && !m.is_capture() {
             return false;
         }
 
@@ -582,45 +580,58 @@ impl Board for Position {
         self.position_stack.push(history_entry);
 
         // set the moving piece
-        utils::set_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
+        utils::set_bit(
+            &mut self.bitboards[m.get_piece() as usize],
+            m.get_to() as u8,
+        );
         self.material[self.turn as usize] +=
-            _get_piece_value(m.piece, m.to as usize, game_phase_score);
+            _get_piece_value(m.get_piece(), m.get_to() as usize, game_phase_score);
 
         // remove the moving piece
-        utils::clear_bit(&mut self.bitboards[m.piece as usize], m.from as u8);
+        utils::clear_bit(
+            &mut self.bitboards[m.get_piece() as usize],
+            m.get_from() as u8,
+        );
         self.material[self.turn as usize] -=
-            _get_piece_value(m.piece, m.from as usize, game_phase_score);
+            _get_piece_value(m.get_piece(), m.get_from() as usize, game_phase_score);
 
         // handle captures
-        if is_capture {
-            let captured_piece = m.capture.unwrap();
+        if m.is_capture() {
+            let captured_piece = m.get_capture();
             // remove the captured piece
-            utils::clear_bit(&mut self.bitboards[captured_piece as usize], m.to as u8);
+            utils::clear_bit(
+                &mut self.bitboards[captured_piece as usize],
+                m.get_to() as u8,
+            );
             self.material[!self.turn as usize] -=
-                _get_piece_value(captured_piece, m.to as usize, game_phase_score);
+                _get_piece_value(captured_piece, m.get_to() as usize, game_phase_score);
         }
 
         // handle promotions
-        match m.promotion {
-            None => {}
-            Some(promotion_piece) => {
-                // remove the pawn
-                utils::clear_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
-                self.material[self.turn as usize] -=
-                    _get_piece_value(m.piece, m.to as usize, game_phase_score);
-                // add the promoted piece
-                utils::set_bit(&mut self.bitboards[promotion_piece as usize], m.to as u8);
-                self.material[self.turn as usize] +=
-                    _get_piece_value(promotion_piece, m.to as usize, game_phase_score);
-            }
+
+        if m.is_promotion() {
+            // remove the pawn
+            utils::clear_bit(
+                &mut self.bitboards[m.get_piece() as usize],
+                m.get_to() as u8,
+            );
+            self.material[self.turn as usize] -=
+                _get_piece_value(m.get_piece(), m.get_to() as usize, game_phase_score);
+            // add the promoted piece
+            utils::set_bit(
+                &mut self.bitboards[m.get_promotion() as usize],
+                m.get_to() as u8,
+            );
+            self.material[self.turn as usize] +=
+                _get_piece_value(m.get_promotion(), m.get_to() as usize, game_phase_score);
         }
 
         // handle en passant
-        if m.en_passant {
+        if m.is_enpassant() {
             let en_captured_square = if self.turn == chess::Color::White {
-                (m.to as u8) + 8
+                (m.get_to() as u8) + 8
             } else {
-                (m.to as u8) - 8
+                (m.get_to() as u8) - 8
             };
 
             let en_captured_piece = self.get_piece_at_square(en_captured_square);
@@ -642,17 +653,17 @@ impl Board for Position {
         self.enpassant = None;
 
         // handle setting the en passant square during double pawn pushes
-        if m.piece == chess::Piece::WhitePawn || m.piece == chess::Piece::BlackPawn {
-            if m.from as i8 - m.to as i8 == 16 {
-                self.enpassant = Some(chess::Square::from(m.from as u8 - 8));
-            } else if m.from as i8 - m.to as i8 == -16 {
-                self.enpassant = Some(chess::Square::from(m.from as u8 + 8));
+        if m.get_piece() == chess::Piece::WhitePawn || m.get_piece() == chess::Piece::BlackPawn {
+            if m.get_from() as i8 - m.get_to() as i8 == 16 {
+                self.enpassant = Some(chess::Square::from(m.get_from() as u8 - 8));
+            } else if m.get_from() as i8 - m.get_to() as i8 == -16 {
+                self.enpassant = Some(chess::Square::from(m.get_from() as u8 + 8));
             }
         }
 
         // handle castling
-        if m.castle {
-            match m.to {
+        if m.is_castle() {
+            match m.get_to() {
                 chess::Square::C1 => {
                     // white queen side
                     utils::clear_bit(
@@ -745,19 +756,19 @@ impl Board for Position {
             }
         }
 
-        if m.piece == chess::Piece::WhiteKing {
+        if m.get_piece() == chess::Piece::WhiteKing {
             self.castling.remove_right(
                 chess::CastlingRights::WHITE_KINGSIDE | chess::CastlingRights::WHITE_QUEENSIDE,
             );
-        } else if m.piece == chess::Piece::BlackKing {
+        } else if m.get_piece() == chess::Piece::BlackKing {
             self.castling.remove_right(
                 chess::CastlingRights::BLACK_KINGSIDE | chess::CastlingRights::BLACK_QUEENSIDE,
             );
         }
 
         // First move of a rook disables castling
-        if m.piece == chess::Piece::WhiteRook
-            && m.from == chess::Square::A1
+        if m.get_piece() == chess::Piece::WhiteRook
+            && m.get_from() == chess::Square::A1
             && self
                 .castling
                 .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
@@ -766,8 +777,8 @@ impl Board for Position {
                 .remove_right(chess::CastlingRights::WHITE_QUEENSIDE);
         }
 
-        if m.piece == chess::Piece::WhiteRook
-            && m.from == chess::Square::H1
+        if m.get_piece() == chess::Piece::WhiteRook
+            && m.get_from() == chess::Square::H1
             && self
                 .castling
                 .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
@@ -776,8 +787,8 @@ impl Board for Position {
                 .remove_right(chess::CastlingRights::WHITE_KINGSIDE);
         }
 
-        if m.piece == chess::Piece::BlackRook
-            && m.from == chess::Square::A8
+        if m.get_piece() == chess::Piece::BlackRook
+            && m.get_from() == chess::Square::A8
             && self
                 .castling
                 .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
@@ -786,8 +797,8 @@ impl Board for Position {
                 .remove_right(chess::CastlingRights::BLACK_QUEENSIDE);
         }
 
-        if m.piece == chess::Piece::BlackRook
-            && m.from == chess::Square::H8
+        if m.get_piece() == chess::Piece::BlackRook
+            && m.get_from() == chess::Square::H8
             && self
                 .castling
                 .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
