@@ -81,8 +81,6 @@ impl UCI {
                                 let position_fen = position.as_fen().to_string();
 
                                 for thread_id in 0..1 {
-                                    println!("thread_id: {}", thread_id);
-
                                     let position_fen_clone = String::from(position_fen.clone());
                                     let is_evaluating_clone = Arc::clone(&is_evaluating);
                                     let transpos_table_clone = Arc::clone(&transpos_table);

@@ -14,6 +14,11 @@ use crate::{
 
 pub const MAX_PLY: usize = 64;
 
+const GET_RANK: [u8; 64] = [
+    7, 7, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4,
+    3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
 static _MVV_LVA: [[u32; 12]; 12] = [
     [105, 205, 305, 405, 505, 605, 105, 205, 305, 405, 505, 605],
     [104, 204, 304, 404, 504, 604, 104, 204, 304, 404, 504, 604],
@@ -606,6 +611,13 @@ impl Evaluator {
             {
                 white_score += ISOLATED_PAWN_PENALTY as i32;
             }
+
+            if (position.white_passed_pawn_masks[square as usize]
+                & position.bitboards[chess::Piece::BlackPawn as usize])
+                == 0
+            {
+                white_score += PASSED_PAWN_BONUS[GET_RANK[square as usize] as usize] as i32
+            }
         }
 
         let mut black_pawns = position.bitboards[chess::Piece::BlackPawn as usize];
@@ -625,10 +637,14 @@ impl Evaluator {
             {
                 black_score += ISOLATED_PAWN_PENALTY as i32;
             }
-        }
 
-        println!("white score: {}", white_score);
-        println!("black score: {}", black_score);
+            if (position.black_passed_pawn_masks[square as usize]
+                & position.bitboards[chess::Piece::WhitePawn as usize])
+                == 0
+            {
+                black_score += PASSED_PAWN_BONUS[7 - GET_RANK[square as usize] as usize] as i32
+            }
+        }
 
         if position.turn == chess::Color::White {
             score += white_score;
