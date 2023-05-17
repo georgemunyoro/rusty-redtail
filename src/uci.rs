@@ -78,21 +78,33 @@ impl UCI {
                         },
                         SearchThreadCommand::Go => match s.options {
                             Some(options) => {
-                                let position_fen = String::from(position.as_fen());
+                                let position_fen = position.as_fen().to_string();
 
-                                let handle = std::thread::spawn(move || {
-                                    let mut eval_position = board::Position::new(None);
-                                    let mut evaluator = evaluation::Evaluator::new();
-                                    eval_position.set_fen(String::from(position_fen));
-                                    let bestmove = evaluator.get_best_move(
-                                        &mut eval_position,
-                                        options,
-                                        is_evaluating,
-                                        transpos_table,
-                                    );
-                                    return bestmove;
-                                });
-                                eval_handles.push(handle);
+                                for thread_id in 0..4 {
+                                    println!("thread_id: {}", thread_id);
+
+                                    let position_fen_clone = String::from(position_fen.clone());
+                                    let is_evaluating_clone = Arc::clone(&is_evaluating);
+                                    let transpos_table_clone = Arc::clone(&transpos_table);
+
+                                    let curr_thread_handle = std::thread::spawn(move || {
+                                        let mut eval_position = board::Position::new(None);
+                                        eval_position.set_fen(String::from(position_fen_clone));
+
+                                        let mut evaluator = evaluation::Evaluator::new();
+                                        let bestmove = evaluator.get_best_move(
+                                            &mut eval_position,
+                                            options,
+                                            is_evaluating_clone,
+                                            transpos_table_clone,
+                                            thread_id,
+                                        );
+
+                                        return bestmove;
+                                    });
+
+                                    eval_handles.push(curr_thread_handle);
+                                }
                             }
                             None => {}
                         },
@@ -103,8 +115,8 @@ impl UCI {
                             }
 
                             while eval_handles.len() > 0 {
-                                let cur_thread = eval_handles.remove(0);
-                                cur_thread.join().unwrap();
+                                let cur_thread = eval_handles.pop();
+                                cur_thread.unwrap().join().unwrap();
                             }
                         }
                     },
@@ -149,9 +161,10 @@ impl UCI {
                         .unwrap();
                     break;
                 }
-                "ucinewgame" => self
-                    .position
-                    .set_fen(String::from(chess::constants::STARTING_FEN)),
+                "ucinewgame" => {
+                    self.position
+                        .set_fen(String::from(chess::constants::STARTING_FEN));
+                }
                 "isready" => println!("readyok"),
                 "position" => {
                     if tokens.len() < 2 {

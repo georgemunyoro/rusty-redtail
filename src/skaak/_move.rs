@@ -9,7 +9,7 @@ use crate::chess;
 */
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BitPackedMove {
-    move_bits: u32,
+    pub move_bits: u32,
 }
 
 impl BitPackedMove {
