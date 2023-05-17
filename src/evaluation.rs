@@ -599,6 +599,13 @@ impl Evaluator {
             if doubled_pawns > 1 {
                 white_score += DOUBLED_PAWN_PENALTY as i32 * doubled_pawns as i32;
             }
+
+            if (position.bitboards[chess::Piece::WhitePawn as usize]
+                & position.isolated_pawn_masks[square as usize])
+                == 0
+            {
+                white_score += ISOLATED_PAWN_PENALTY as i32;
+            }
         }
 
         let mut black_pawns = position.bitboards[chess::Piece::BlackPawn as usize];
@@ -611,10 +618,17 @@ impl Evaluator {
             if doubled_pawns > 1 {
                 black_score += DOUBLED_PAWN_PENALTY as i32 * doubled_pawns as i32;
             }
+
+            if (position.bitboards[chess::Piece::BlackPawn as usize]
+                & position.isolated_pawn_masks[square as usize])
+                == 0
+            {
+                black_score += ISOLATED_PAWN_PENALTY as i32;
+            }
         }
 
-        // println!("white score: {}", white_score);
-        // println!("black score: {}", black_score);
+        println!("white score: {}", white_score);
+        println!("black score: {}", black_score);
 
         if position.turn == chess::Color::White {
             score += white_score;
