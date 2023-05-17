@@ -188,6 +188,13 @@ pub struct Position {
 
     pub hash: u64,
     pub material: [i32; 2],
+
+    pub file_masks: [u64; 64],
+    pub rank_masks: [u64; 64],
+    pub isolated_pawn_masks: [u64; 64],
+
+    pub white_passed_pawn_masks: [u64; 64],
+    pub black_passed_pawn_masks: [u64; 64],
 }
 
 pub struct HistoryEntry {
@@ -264,12 +271,20 @@ impl Board for Position {
 
             hash: 0,
             material: [0, 0],
+
+            white_passed_pawn_masks: [0; 64],
+            black_passed_pawn_masks: [0; 64],
+
+            file_masks: [0; 64],
+            rank_masks: [0; 64],
+            isolated_pawn_masks: [0; 64],
         };
 
         pos.initialize_leaper_piece_attacks();
         pos.initialize_slider_piece_attacks();
         pos.initialize_slider_magic_attacks(false);
         pos.initialize_slider_magic_attacks(true);
+        pos.init_evaluation_masks();
 
         pos.init_zorbrist_keys();
         pos.update_occupancies();
@@ -831,6 +846,63 @@ impl Board for Position {
 }
 
 impl Position {
+    pub fn set_file_rank_mask(&mut self, file_num: i32, rank_num: i32) -> u64 {
+        let mut mask: u64 = 0;
+
+        for rank in 0..8 {
+            for file in 0..8 {
+                let square = rank * 8 + file;
+
+                if file_num != -1 {
+                    if file == file_num {
+                        utils::set_bit(&mut mask, square as u8);
+                    }
+                } else if rank_num != -1 {
+                    if rank == rank_num {
+                        utils::set_bit(&mut mask, square as u8);
+                    }
+                }
+            }
+        }
+
+        return mask;
+    }
+
+    pub fn init_evaluation_masks(&mut self) {
+        for rank in 0..8 {
+            for file in 0..8 {
+                let square = rank * 8 + file;
+
+                self.file_masks[square] = self.set_file_rank_mask(file as i32, -1);
+                self.rank_masks[square] = self.set_file_rank_mask(-1, rank as i32);
+
+                self.isolated_pawn_masks[square] = self.set_file_rank_mask(file as i32 - 1, -1)
+                    | self.set_file_rank_mask(file as i32 + 1, -1);
+            }
+        }
+
+        for rank in 0..8 {
+            for file in 0..8 {
+                let square = rank * 8 + file;
+
+                let m = self.set_file_rank_mask(file as i32 - 1, -1)
+                    | self.set_file_rank_mask(file as i32 + 1, -1)
+                    | self.set_file_rank_mask(file as i32, -1);
+
+                self.white_passed_pawn_masks[square] = m;
+                self.black_passed_pawn_masks[square] = m;
+
+                for i in 0..(8 - rank) {
+                    self.white_passed_pawn_masks[square] &= !self.rank_masks[(7 - i) * 8 + file];
+                }
+
+                for i in 0..(rank + 1) {
+                    self.black_passed_pawn_masks[square] &= !self.rank_masks[i * 8 + file];
+                }
+            }
+        }
+    }
+
     pub fn update_hash(&mut self) {
         let mut hash: u64 = 0;
         for piece in 0..12 {

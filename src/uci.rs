@@ -80,7 +80,7 @@ impl UCI {
                             Some(options) => {
                                 let position_fen = position.as_fen().to_string();
 
-                                for thread_id in 0..4 {
+                                for thread_id in 0..1 {
                                     println!("thread_id: {}", thread_id);
 
                                     let position_fen_clone = String::from(position_fen.clone());
@@ -98,6 +98,7 @@ impl UCI {
                                             is_evaluating_clone,
                                             transpos_table_clone,
                                             thread_id,
+                                            thread_id as u8 + 1,
                                         );
 
                                         return bestmove;
