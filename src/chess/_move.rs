@@ -1,4 +1,6 @@
-use crate::chess;
+use std::cmp::Ordering;
+
+use crate::chess::{piece::Piece, square::Square};
 
 /*
    Represents a move in the game of chess. Data is stored in a single u32.
@@ -13,10 +15,9 @@ pub struct BitPackedMove {
 }
 
 impl BitPackedMove {
-
-    // This is how much we need to shift each value 
+    // This is how much we need to shift each value
     // by to store it and retrieve from the u32
-    
+
     const FROM_SHIFT: u8 = 22;
     const TO_SHIFT: u8 = 14;
     const PIECE_SHIFT: u8 = 10;
@@ -25,16 +26,15 @@ impl BitPackedMove {
     const PROMOTION_SHIFT: u8 = 1;
     const ENPAS_SHIFT: u8 = 0;
 
-
     /// Returns a move, given the current square of the moving piece, the square to which it will
     /// move to, and the actual piece itself. This constructs the most basic type of move.
-    pub fn new(from: chess::Square, to: chess::Square, piece: chess::Piece) -> BitPackedMove {
+    pub fn new(from: Square, to: Square, piece: Piece) -> BitPackedMove {
         let mut bit_packed_move = BitPackedMove { move_bits: 0 };
         bit_packed_move.set_from(from);
         bit_packed_move.set_to(to);
         bit_packed_move.set_piece(piece);
-        bit_packed_move.set_promotion(chess::Piece::Empty);
-        bit_packed_move.set_capture(chess::Piece::Empty);
+        bit_packed_move.set_promotion(Piece::Empty);
+        bit_packed_move.set_capture(Piece::Empty);
         return bit_packed_move;
     }
 
@@ -42,9 +42,9 @@ impl BitPackedMove {
     /// square. Use this instead of Option<>
     pub fn default() -> BitPackedMove {
         let mut bit_packed_move = BitPackedMove { move_bits: 0 };
-        bit_packed_move.set_piece(chess::Piece::Empty);
-        bit_packed_move.set_promotion(chess::Piece::Empty);
-        bit_packed_move.set_capture(chess::Piece::Empty);
+        bit_packed_move.set_piece(Piece::Empty);
+        bit_packed_move.set_promotion(Piece::Empty);
+        bit_packed_move.set_capture(Piece::Empty);
         return bit_packed_move;
     }
 
@@ -53,31 +53,29 @@ impl BitPackedMove {
     */
 
     /// Returns the piece being moved
-    pub fn get_piece(&self) -> chess::Piece {
-        return chess::Piece::from(((self.move_bits >> BitPackedMove::PIECE_SHIFT) as usize) & 0xF);
+    pub fn get_piece(&self) -> Piece {
+        return Piece::from(((self.move_bits >> BitPackedMove::PIECE_SHIFT) as usize) & 0xF);
     }
 
     /// Returns the initial square of the piece moving
-    pub fn get_from(&self) -> chess::Square {
-        return chess::Square::from((self.move_bits >> BitPackedMove::FROM_SHIFT) as usize);
+    pub fn get_from(&self) -> Square {
+        return Square::from((self.move_bits >> BitPackedMove::FROM_SHIFT) as usize);
     }
 
     /// Returns the square that the piece will move to
-    pub fn get_to(&self) -> chess::Square {
-        return chess::Square::from((self.move_bits >> BitPackedMove::TO_SHIFT) as usize & 0xFF);
+    pub fn get_to(&self) -> Square {
+        return Square::from((self.move_bits >> BitPackedMove::TO_SHIFT) as usize & 0xFF);
     }
 
-    /// If the move results in a promotion, returns the resulting piece being 
+    /// If the move results in a promotion, returns the resulting piece being
     /// promoted to, otherwise returns an empty piece
-    pub fn get_promotion(&self) -> chess::Piece {
-        return chess::Piece::from(
-            (self.move_bits >> BitPackedMove::PROMOTION_SHIFT & 0xF) as usize,
-        );
+    pub fn get_promotion(&self) -> Piece {
+        return Piece::from((self.move_bits >> BitPackedMove::PROMOTION_SHIFT & 0xF) as usize);
     }
 
     /// Returns the piece being captured, if not a capturing move, returns an empty piece
-    pub fn get_capture(&self) -> chess::Piece {
-        return chess::Piece::from((self.move_bits >> BitPackedMove::CAPTURE_SHIFT & 0xF) as usize);
+    pub fn get_capture(&self) -> Piece {
+        return Piece::from((self.move_bits >> BitPackedMove::CAPTURE_SHIFT & 0xF) as usize);
     }
 
     /*
@@ -85,13 +83,13 @@ impl BitPackedMove {
     */
 
     /// Sets the piece that will be promoted to
-    pub fn set_promotion(&mut self, promotion_piece: chess::Piece) {
+    pub fn set_promotion(&mut self, promotion_piece: Piece) {
         self.move_bits = (self.move_bits & !(0xF << BitPackedMove::PROMOTION_SHIFT))
             | ((promotion_piece as u32) << BitPackedMove::PROMOTION_SHIFT);
     }
 
     /// Sets the piece that is being captured
-    pub fn set_capture(&mut self, captured_piece: chess::Piece) {
+    pub fn set_capture(&mut self, captured_piece: Piece) {
         self.move_bits = (self.move_bits & !(0xF << BitPackedMove::CAPTURE_SHIFT))
             | (captured_piece as u32) << BitPackedMove::CAPTURE_SHIFT;
     }
@@ -107,19 +105,19 @@ impl BitPackedMove {
     }
 
     /// Sets the inital square of the moving piece
-    pub fn set_from(&mut self, from: chess::Square) {
+    pub fn set_from(&mut self, from: Square) {
         self.move_bits = (self.move_bits & !(0xFF << BitPackedMove::FROM_SHIFT))
             | (from as u32) << BitPackedMove::FROM_SHIFT;
     }
 
     /// Sets the square that the moving piece is moving to
-    pub fn set_to(&mut self, to: chess::Square) {
+    pub fn set_to(&mut self, to: Square) {
         self.move_bits = (self.move_bits & !(0xFF << BitPackedMove::TO_SHIFT))
             | (to as u32) << BitPackedMove::TO_SHIFT;
     }
 
     /// Sets the piece that will be moving
-    pub fn set_piece(&mut self, piece: chess::Piece) {
+    pub fn set_piece(&mut self, piece: Piece) {
         self.move_bits = (self.move_bits & !(0xF << BitPackedMove::PIECE_SHIFT))
             | (piece as u32) << BitPackedMove::PIECE_SHIFT;
     }
@@ -130,14 +128,12 @@ impl BitPackedMove {
 
     /// Returns true if the move is a capture, otherwise false
     pub fn is_capture(&self) -> bool {
-        return ((self.move_bits >> BitPackedMove::CAPTURE_SHIFT) & 0xF)
-            != chess::Piece::Empty as u32;
+        return ((self.move_bits >> BitPackedMove::CAPTURE_SHIFT) & 0xF) != Piece::Empty as u32;
     }
 
     /// Returns true if the move results in a promotion, otherwise false
     pub fn is_promotion(&self) -> bool {
-        return ((self.move_bits >> BitPackedMove::PROMOTION_SHIFT) & 0xF)
-            != chess::Piece::Empty as u32;
+        return ((self.move_bits >> BitPackedMove::PROMOTION_SHIFT) & 0xF) != Piece::Empty as u32;
     }
 
     /// Returns true if the move is a castling move, otherwise false
@@ -172,5 +168,30 @@ impl std::fmt::Display for BitPackedMove {
                 String::from("")
             }
         );
+    }
+}
+
+pub struct PrioritizedMove {
+    pub priority: u32,
+    pub m: BitPackedMove,
+}
+
+impl PartialEq for PrioritizedMove {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority
+    }
+}
+
+impl Eq for PrioritizedMove {}
+
+impl Ord for PrioritizedMove {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.priority.cmp(&other.priority)
+    }
+}
+
+impl PartialOrd for PrioritizedMove {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }

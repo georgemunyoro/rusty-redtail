@@ -5,46 +5,17 @@ use std::{
 
 use crate::{
     board::{Board, Position},
-    chess::{self, PrioritizedMove},
+    chess::{self, _move::PrioritizedMove, color::Color, piece::Piece},
     movegen::MoveGenerator,
-    skaak::{self, piece::Piece},
+    search::constants::*,
     tt::{self, TranspositionTable},
     utils,
 };
 
-pub const MAX_PLY: usize = 64;
-
-const GET_RANK: [u8; 64] = [
-    7, 7, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4,
-    3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-];
-
-static _MVV_LVA: [[u32; 12]; 12] = [
-    [105, 205, 305, 405, 505, 605, 105, 205, 305, 405, 505, 605],
-    [104, 204, 304, 404, 504, 604, 104, 204, 304, 404, 504, 604],
-    [103, 203, 303, 403, 503, 603, 103, 203, 303, 403, 503, 603],
-    [102, 202, 302, 402, 502, 602, 102, 202, 302, 402, 502, 602],
-    [101, 201, 301, 401, 501, 601, 101, 201, 301, 401, 501, 601],
-    [100, 200, 300, 400, 500, 600, 100, 200, 300, 400, 500, 600],
-    [105, 205, 305, 405, 505, 605, 105, 205, 305, 405, 505, 605],
-    [104, 204, 304, 404, 504, 604, 104, 204, 304, 404, 504, 604],
-    [103, 203, 303, 403, 503, 603, 103, 203, 303, 403, 503, 603],
-    [102, 202, 302, 402, 502, 602, 102, 202, 302, 402, 502, 602],
-    [101, 201, 301, 401, 501, 601, 101, 201, 301, 401, 501, 601],
-    [100, 200, 300, 400, 500, 600, 100, 200, 300, 400, 500, 600],
-];
-
-const _REDUCTION_LIMIT: u8 = 3;
-const _FULL_DEPTH_MOVES: u8 = 3;
-
-const DOUBLED_PAWN_PENALTY: i32 = -10;
-const ISOLATED_PAWN_PENALTY: i32 = -10;
-const PASSED_PAWN_BONUS: [i32; 8] = [0, 5, 10, 20, 35, 60, 100, 200];
-
 #[derive(Debug)]
 pub struct PositionEvaluation {
     pub score: i32,
-    pub best_move: Option<skaak::_move::BitPackedMove>,
+    pub best_move: Option<chess::_move::BitPackedMove>,
     pub depth: u8,
     pub ply: u32,
     pub nodes: i32,
@@ -81,7 +52,7 @@ impl SearchOptions {
 pub struct Evaluator {
     pub running: Arc<Mutex<bool>>,
     pub result: PositionEvaluation,
-    pub killer_moves: [[skaak::_move::BitPackedMove; MAX_PLY]; 2],
+    pub killer_moves: [[chess::_move::BitPackedMove; MAX_PLY]; 2],
     pub history_moves: [[u32; MAX_PLY]; 12],
     pub started_at: u128,
     pub options: SearchOptions,
@@ -110,11 +81,11 @@ impl Evaluator {
                 ply: 0,
                 nodes: 0,
             },
-            killer_moves: [[skaak::_move::BitPackedMove::default(); MAX_PLY]; 2],
+            killer_moves: [[chess::_move::BitPackedMove::default(); MAX_PLY]; 2],
             history_moves: [[0; MAX_PLY]; 12],
             started_at: 0,
             options: SearchOptions::new(),
-            tt: Arc::new(Mutex::new(TranspositionTable::new())),
+            tt: Arc::new(Mutex::new(TranspositionTable::new(1024))),
             repetition_table: Vec::with_capacity(150),
         };
     }
@@ -127,7 +98,7 @@ impl Evaluator {
         transposition_table: Arc<Mutex<TranspositionTable>>,
         thread_id: usize,
         start_depth: u8,
-    ) -> Option<skaak::_move::BitPackedMove> {
+    ) -> Option<chess::_move::BitPackedMove> {
         self.result = PositionEvaluation {
             score: 0,
             best_move: None,
@@ -187,13 +158,13 @@ impl Evaluator {
             current_depth += 1;
         }
 
-        let mut b = skaak::_move::BitPackedMove::default();
+        let mut b = chess::_move::BitPackedMove::default();
 
         if pv_line_completed_so_far.len() > 0 {
             b = pv_line_completed_so_far[0].get_move();
             println!("bestmove {}", pv_line_completed_so_far[0].get_move());
         } else {
-            println!("bestmove {}", skaak::_move::BitPackedMove::default());
+            println!("bestmove {}", chess::_move::BitPackedMove::default());
         }
 
         return Some(b);
@@ -209,7 +180,7 @@ impl Evaluator {
     ) -> i32 {
         let mut alpha = _alpha;
         let mut depth = _depth; // will be mutable later for search extensions
-        let mut alpha_move = skaak::_move::BitPackedMove::default();
+        let mut alpha_move = chess::_move::BitPackedMove::default();
 
         if self.result.nodes & 2047 == 0 {
             self.set_running(self.check_time());
@@ -515,7 +486,7 @@ impl Evaluator {
     }
 
     fn _has_non_pawn_material(&self, position: &mut Position) -> bool {
-        if position.turn == chess::Color::White {
+        if position.turn == Color::White {
             (position.bitboards[Piece::WhiteBishop as usize]
                 + position.bitboards[Piece::WhiteKnight as usize]
                 + position.bitboards[Piece::WhiteRook as usize]
@@ -541,7 +512,7 @@ impl Evaluator {
     /// Returns a score for a move based on various heuristics.
     fn get_move_priority(
         &mut self,
-        m: skaak::_move::BitPackedMove,
+        m: chess::_move::BitPackedMove,
         is_following_pv_line: bool,
     ) -> u32 {
         if is_following_pv_line {
@@ -567,14 +538,14 @@ impl Evaluator {
 
     fn order_moves_p(
         &mut self,
-        moves: Vec<skaak::_move::BitPackedMove>,
+        moves: Vec<chess::_move::BitPackedMove>,
         position: &mut Position,
-    ) -> BinaryHeap<chess::PrioritizedMove> {
+    ) -> BinaryHeap<PrioritizedMove> {
         let mut queue: BinaryHeap<PrioritizedMove> = BinaryHeap::with_capacity(moves.len());
 
-        let mut tt_move: skaak::_move::BitPackedMove = skaak::_move::BitPackedMove::default();
+        let mut tt_move: chess::_move::BitPackedMove = chess::_move::BitPackedMove::default();
         if let Some(tt_entry) = self.tt.lock().unwrap().get(position.hash) {
-            if tt_entry.get_move() != skaak::_move::BitPackedMove::default() {
+            if tt_entry.get_move() != chess::_move::BitPackedMove::default() {
                 tt_move = tt_entry.get_move();
             }
         }
@@ -646,7 +617,7 @@ impl Evaluator {
             }
         }
 
-        if position.turn == chess::Color::White {
+        if position.turn == Color::White {
             score += white_score;
             score -= black_score;
         } else {

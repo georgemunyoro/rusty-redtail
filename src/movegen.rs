@@ -2,25 +2,25 @@ use std::fmt::Display;
 
 use crate::{
     board::{Board, Position},
-    chess,
-    skaak::{square::Square, piece::Piece, self}, utils,
+    chess::{self, castling_rights::CastlingRights, color::Color, piece::Piece, square::Square},
+    utils,
 };
 
 pub trait MoveGenerator {
-    fn generate_moves(&self) -> Vec<skaak::_move::BitPackedMove>;
-    fn generate_legal_moves(&mut self) -> Vec<skaak::_move::BitPackedMove>;
+    fn generate_moves(&self) -> Vec<chess::_move::BitPackedMove>;
+    fn generate_legal_moves(&mut self) -> Vec<chess::_move::BitPackedMove>;
 
-    fn generate_knight_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>);
-    fn generate_bishop_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>);
-    fn generate_rook_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>);
-    fn generate_queen_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>);
+    fn generate_knight_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
+    fn generate_bishop_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
+    fn generate_rook_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
+    fn generate_queen_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
 
-    fn generate_king_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>);
-    fn generate_castle_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>);
+    fn generate_king_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
+    fn generate_castle_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
 
-    fn generate_pawn_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>);
-    fn generate_white_pawn_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>);
-    fn generate_black_pawn_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>);
+    fn generate_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
+    fn generate_white_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
+    fn generate_black_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
 
     fn perft(&mut self, depth: u8) -> u64;
     fn perft_divide(&mut self, depth: u8) -> u64;
@@ -81,7 +81,7 @@ impl std::ops::Add for PerftResult {
 }
 
 impl MoveGenerator for Position {
-    fn generate_black_pawn_moves(&self, moves: &mut Vec<skaak::_move::BitPackedMove>) {
+    fn generate_black_pawn_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
         let mut piece_bitboard =
             self.bitboards[Piece::BlackPawn as usize] & !chess::constants::RANK_1;
 
@@ -90,9 +90,7 @@ impl MoveGenerator for Position {
             let target = Square::from((source as u8) + 8);
 
             // quiet pawn moves
-            if (target <= Square::H1)
-                && self.get_piece_at_square(target as u8) == Piece::Empty
-            {
+            if (target <= Square::H1) && self.get_piece_at_square(target as u8) == Piece::Empty {
                 // pawn promotion
                 if source >= Square::A2 && source <= Square::H2 {
                     moves.extend(
@@ -104,18 +102,15 @@ impl MoveGenerator for Position {
                         ]
                         .iter()
                         .map(|promotion| {
-                            let mut m = skaak::_move::BitPackedMove::new(
-                                source,
-                                target,
-                                Piece::BlackPawn,
-                            );
+                            let mut m =
+                                chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
                             m.set_promotion(*promotion);
                             return m;
                         }),
                     );
                 } else {
                     // single pawn push
-                    moves.push(skaak::_move::BitPackedMove::new(
+                    moves.push(chess::_move::BitPackedMove::new(
                         source,
                         target,
                         Piece::BlackPawn,
@@ -125,7 +120,7 @@ impl MoveGenerator for Position {
                     if (source >= Square::A7) && (source <= Square::H7) {
                         let target = Square::from((source as u8) + 16);
                         if self.get_piece_at_square(target as u8) == Piece::Empty {
-                            moves.push(skaak::_move::BitPackedMove::new(
+                            moves.push(chess::_move::BitPackedMove::new(
                                 source,
                                 target,
                                 Piece::BlackPawn,
@@ -136,8 +131,8 @@ impl MoveGenerator for Position {
             }
 
             // pawn captures
-            let mut attacks = self.pawn_attacks[chess::Color::Black as usize][source as usize]
-                & self.occupancies[chess::Color::White as usize];
+            let mut attacks = self.pawn_attacks[Color::Black as usize][source as usize]
+                & self.occupancies[Color::White as usize];
             while attacks != 0 {
                 let target = Square::from(utils::get_lsb(attacks));
 
@@ -151,19 +146,15 @@ impl MoveGenerator for Position {
                         ]
                         .iter()
                         .map(|promotion| {
-                            let mut m = skaak::_move::BitPackedMove::new(
-                                source,
-                                target,
-                                Piece::BlackPawn,
-                            );
+                            let mut m =
+                                chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
                             m.set_promotion(*promotion);
                             m.set_capture(self.get_piece_at_square(target as u8));
                             return m;
                         }),
                     );
                 } else {
-                    let mut m =
-                        skaak::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
+                    let mut m = chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
                     m.set_capture(self.get_piece_at_square(target as u8));
                     moves.push(m);
                 }
@@ -173,13 +164,12 @@ impl MoveGenerator for Position {
 
             // generate enpassant captures
             if let Some(enpassant_square) = self.enpassant {
-                let enpassant_attacks = self.pawn_attacks[chess::Color::Black as usize]
-                    [source as usize]
+                let enpassant_attacks = self.pawn_attacks[Color::Black as usize][source as usize]
                     & (1u64 << enpassant_square as u8);
 
                 if enpassant_attacks != 0 {
                     let target_enpassant = utils::get_lsb(enpassant_attacks);
-                    let mut m = skaak::_move::BitPackedMove::new(
+                    let mut m = chess::_move::BitPackedMove::new(
                         source,
                         Square::from(target_enpassant),
                         Piece::BlackPawn,
@@ -193,7 +183,7 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_white_pawn_moves(&self, moves: &mut Vec<skaak::_move::BitPackedMove>) {
+    fn generate_white_pawn_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
         let mut piece_bitboard =
             self.bitboards[Piece::WhitePawn as usize] & !chess::constants::RANK_8;
 
@@ -202,9 +192,7 @@ impl MoveGenerator for Position {
             let target = Square::from((source as usize) - 8);
 
             // quiet pawn moves
-            if (target >= Square::A8)
-                && self.get_piece_at_square(target as u8) == Piece::Empty
-            {
+            if (target >= Square::A8) && self.get_piece_at_square(target as u8) == Piece::Empty {
                 // pawn promotion
                 if source >= Square::A7 && source <= Square::H7 {
                     moves.extend(
@@ -216,18 +204,15 @@ impl MoveGenerator for Position {
                         ]
                         .iter()
                         .map(|promotion| {
-                            let mut m = skaak::_move::BitPackedMove::new(
-                                source,
-                                target,
-                                Piece::WhitePawn,
-                            );
+                            let mut m =
+                                chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
                             m.set_promotion(*promotion);
                             return m;
                         }),
                     );
                 } else {
                     // single pawn push
-                    moves.push(skaak::_move::BitPackedMove::new(
+                    moves.push(chess::_move::BitPackedMove::new(
                         source,
                         target,
                         Piece::WhitePawn,
@@ -237,7 +222,7 @@ impl MoveGenerator for Position {
                     if (source >= Square::A2) && (source <= Square::H2) {
                         let target = Square::from((source as u8) - 16);
                         if self.get_piece_at_square(target as u8) == Piece::Empty {
-                            moves.push(skaak::_move::BitPackedMove::new(
+                            moves.push(chess::_move::BitPackedMove::new(
                                 source,
                                 target,
                                 Piece::WhitePawn,
@@ -248,8 +233,8 @@ impl MoveGenerator for Position {
             }
 
             // pawn captures
-            let mut attacks = self.pawn_attacks[chess::Color::White as usize][source as usize]
-                & self.occupancies[chess::Color::Black as usize];
+            let mut attacks = self.pawn_attacks[Color::White as usize][source as usize]
+                & self.occupancies[Color::Black as usize];
             while attacks != 0 {
                 let target = Square::from(utils::get_lsb(attacks));
 
@@ -263,19 +248,15 @@ impl MoveGenerator for Position {
                         ]
                         .iter()
                         .map(|promotion| {
-                            let mut m = skaak::_move::BitPackedMove::new(
-                                source,
-                                target,
-                                Piece::WhitePawn,
-                            );
+                            let mut m =
+                                chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
                             m.set_promotion(*promotion);
                             m.set_capture(self.get_piece_at_square(target as u8));
                             return m;
                         }),
                     );
                 } else {
-                    let mut m =
-                        skaak::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
+                    let mut m = chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
                     m.set_capture(self.get_piece_at_square(target as u8));
                     moves.push(m);
                 }
@@ -285,13 +266,12 @@ impl MoveGenerator for Position {
 
             // generate enpassant captures
             if let Some(enpassant_square) = self.enpassant {
-                let enpassant_attacks = self.pawn_attacks[chess::Color::White as usize]
-                    [source as usize]
+                let enpassant_attacks = self.pawn_attacks[Color::White as usize][source as usize]
                     & (1u64 << enpassant_square as u8);
 
                 if enpassant_attacks != 0 {
                     let target_enpassant = utils::get_lsb(enpassant_attacks);
-                    let mut m = skaak::_move::BitPackedMove::new(
+                    let mut m = chess::_move::BitPackedMove::new(
                         source,
                         Square::from(target_enpassant),
                         Piece::WhitePawn,
@@ -305,19 +285,19 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_pawn_moves(&self, move_list: &mut Vec<skaak::_move::BitPackedMove>) {
+    fn generate_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>) {
         // white pawn moves
-        if self.turn == chess::Color::White {
+        if self.turn == Color::White {
             self.generate_white_pawn_moves(move_list)
         }
         // black pawn moves
-        else if self.turn == chess::Color::Black {
+        else if self.turn == Color::Black {
             self.generate_black_pawn_moves(move_list)
         }
     }
 
-    fn generate_knight_moves(&self, moves: &mut Vec<skaak::_move::BitPackedMove>) {
-        let piece = if self.turn == chess::Color::White {
+    fn generate_knight_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+        let piece = if self.turn == Color::White {
             Piece::WhiteKnight
         } else {
             Piece::BlackKnight
@@ -332,11 +312,8 @@ impl MoveGenerator for Position {
 
             while knight_moves != 0 {
                 let j = utils::pop_lsb(&mut knight_moves);
-                let mut m = skaak::_move::BitPackedMove::new(
-                    Square::from(i),
-                    Square::from(j),
-                    piece,
-                );
+                let mut m =
+                    chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
                 let captured_piece = self.get_piece_at_square(j);
                 if captured_piece != Piece::Empty {
@@ -348,8 +325,8 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_bishop_moves(&self, moves: &mut Vec<skaak::_move::BitPackedMove>) {
-        let piece = if self.turn == chess::Color::White {
+    fn generate_bishop_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+        let piece = if self.turn == Color::White {
             Piece::WhiteBishop
         } else {
             Piece::BlackBishop
@@ -367,11 +344,8 @@ impl MoveGenerator for Position {
 
             while bishop_moves != 0 {
                 let j = utils::pop_lsb(&mut bishop_moves);
-                let mut m = skaak::_move::BitPackedMove::new(
-                    Square::from(i),
-                    Square::from(j),
-                    piece,
-                );
+                let mut m =
+                    chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
                 let captured_piece = self.get_piece_at_square(j);
                 if captured_piece != Piece::Empty {
@@ -383,8 +357,8 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_rook_moves(&self, moves: &mut Vec<skaak::_move::BitPackedMove>) {
-        let piece = if self.turn == chess::Color::White {
+    fn generate_rook_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+        let piece = if self.turn == Color::White {
             Piece::WhiteRook
         } else {
             Piece::BlackRook
@@ -402,11 +376,8 @@ impl MoveGenerator for Position {
 
             while rook_moves != 0 {
                 let j = utils::pop_lsb(&mut rook_moves);
-                let mut m = skaak::_move::BitPackedMove::new(
-                    Square::from(i),
-                    Square::from(j),
-                    piece,
-                );
+                let mut m =
+                    chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
                 let captured_piece = self.get_piece_at_square(j);
                 if captured_piece != Piece::Empty {
@@ -418,8 +389,8 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_queen_moves(&self, moves: &mut Vec<skaak::_move::BitPackedMove>) {
-        let piece = if self.turn == chess::Color::White {
+    fn generate_queen_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+        let piece = if self.turn == Color::White {
             Piece::WhiteQueen
         } else {
             Piece::BlackQueen
@@ -437,11 +408,8 @@ impl MoveGenerator for Position {
 
             while queen_moves != 0 {
                 let j = utils::pop_lsb(&mut queen_moves);
-                let mut m = skaak::_move::BitPackedMove::new(
-                    Square::from(i),
-                    Square::from(j),
-                    piece,
-                );
+                let mut m =
+                    chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
                 let captured_piece = self.get_piece_at_square(j);
                 if captured_piece != Piece::Empty {
@@ -453,8 +421,8 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_king_moves(&self, moves: &mut Vec<skaak::_move::BitPackedMove>) {
-        let piece = if self.turn == chess::Color::White {
+    fn generate_king_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+        let piece = if self.turn == Color::White {
             Piece::WhiteKing
         } else {
             Piece::BlackKing
@@ -469,11 +437,8 @@ impl MoveGenerator for Position {
 
             while king_moves != 0 {
                 let j = utils::pop_lsb(&mut king_moves);
-                let mut m = skaak::_move::BitPackedMove::new(
-                    Square::from(i),
-                    Square::from(j),
-                    piece,
-                );
+                let mut m =
+                    chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
                 let captured_piece = self.get_piece_at_square(j);
                 if captured_piece != Piece::Empty {
@@ -487,97 +452,65 @@ impl MoveGenerator for Position {
         self.generate_castle_moves(moves);
     }
 
-    fn generate_castle_moves(&self, moves: &mut Vec<skaak::_move::BitPackedMove>) {
-        if self.turn == chess::Color::White {
-            let is_king_side_empty = self.get_piece_at_square(Square::G1 as u8)
-                == Piece::Empty
+    fn generate_castle_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+        if self.turn == Color::White {
+            let is_king_side_empty = self.get_piece_at_square(Square::G1 as u8) == Piece::Empty
                 && self.get_piece_at_square(Square::F1 as u8) == Piece::Empty;
 
-            if is_king_side_empty
-                && self
-                    .castling
-                    .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
-            {
-                if !self.is_square_attacked(Square::E1, chess::Color::Black)
-                    && !self.is_square_attacked(Square::F1, chess::Color::Black)
+            if is_king_side_empty && self.castling.can_castle(CastlingRights::WHITE_KINGSIDE) {
+                if !self.is_square_attacked(Square::E1, Color::Black)
+                    && !self.is_square_attacked(Square::F1, Color::Black)
                     && self.get_piece_at_square(Square::H1 as u8) == Piece::WhiteRook
                 {
-                    let mut m = skaak::_move::BitPackedMove::new(
-                        Square::E1,
-                        Square::G1,
-                        Piece::WhiteKing,
-                    );
+                    let mut m =
+                        chess::_move::BitPackedMove::new(Square::E1, Square::G1, Piece::WhiteKing);
                     m.set_castle();
                     moves.push(m);
                 }
             }
 
-            let is_queen_side_empty = self.get_piece_at_square(Square::D1 as u8)
-                == Piece::Empty
+            let is_queen_side_empty = self.get_piece_at_square(Square::D1 as u8) == Piece::Empty
                 && self.get_piece_at_square(Square::C1 as u8) == Piece::Empty
                 && self.get_piece_at_square(Square::B1 as u8) == Piece::Empty;
 
-            if is_queen_side_empty
-                && self
-                    .castling
-                    .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
-            {
-                if !self.is_square_attacked(Square::E1, chess::Color::Black)
-                    && !self.is_square_attacked(Square::D1, chess::Color::Black)
+            if is_queen_side_empty && self.castling.can_castle(CastlingRights::WHITE_QUEENSIDE) {
+                if !self.is_square_attacked(Square::E1, Color::Black)
+                    && !self.is_square_attacked(Square::D1, Color::Black)
                     && self.get_piece_at_square(Square::A1 as u8) == Piece::WhiteRook
                 {
-                    let mut m = skaak::_move::BitPackedMove::new(
-                        Square::E1,
-                        Square::C1,
-                        Piece::WhiteKing,
-                    );
+                    let mut m =
+                        chess::_move::BitPackedMove::new(Square::E1, Square::C1, Piece::WhiteKing);
                     m.set_castle();
                     moves.push(m);
                 }
             }
-        } else if self.turn == chess::Color::Black {
-            let is_king_side_empty = self.get_piece_at_square(Square::G8 as u8)
-                == Piece::Empty
+        } else if self.turn == Color::Black {
+            let is_king_side_empty = self.get_piece_at_square(Square::G8 as u8) == Piece::Empty
                 && self.get_piece_at_square(Square::F8 as u8) == Piece::Empty;
 
-            if is_king_side_empty
-                && self
-                    .castling
-                    .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
-            {
-                if !self.is_square_attacked(Square::E8, chess::Color::White)
-                    && !self.is_square_attacked(Square::F8, chess::Color::White)
+            if is_king_side_empty && self.castling.can_castle(CastlingRights::BLACK_KINGSIDE) {
+                if !self.is_square_attacked(Square::E8, Color::White)
+                    && !self.is_square_attacked(Square::F8, Color::White)
                     && self.get_piece_at_square(Square::H8 as u8) == Piece::BlackRook
                 {
-                    let mut m = skaak::_move::BitPackedMove::new(
-                        Square::E8,
-                        Square::G8,
-                        Piece::BlackKing,
-                    );
+                    let mut m =
+                        chess::_move::BitPackedMove::new(Square::E8, Square::G8, Piece::BlackKing);
                     m.set_castle();
                     moves.push(m);
                 }
             }
 
-            let is_queen_side_empty = self.get_piece_at_square(Square::D8 as u8)
-                == Piece::Empty
+            let is_queen_side_empty = self.get_piece_at_square(Square::D8 as u8) == Piece::Empty
                 && self.get_piece_at_square(Square::C8 as u8) == Piece::Empty
                 && self.get_piece_at_square(Square::B8 as u8) == Piece::Empty;
 
-            if is_queen_side_empty
-                && self
-                    .castling
-                    .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
-            {
-                if !self.is_square_attacked(Square::E8, chess::Color::White)
-                    && !self.is_square_attacked(Square::D8, chess::Color::White)
+            if is_queen_side_empty && self.castling.can_castle(CastlingRights::BLACK_QUEENSIDE) {
+                if !self.is_square_attacked(Square::E8, Color::White)
+                    && !self.is_square_attacked(Square::D8, Color::White)
                     && self.get_piece_at_square(Square::A8 as u8) == Piece::BlackRook
                 {
-                    let mut m = skaak::_move::BitPackedMove::new(
-                        Square::E8,
-                        Square::C8,
-                        Piece::BlackKing,
-                    );
+                    let mut m =
+                        chess::_move::BitPackedMove::new(Square::E8, Square::C8, Piece::BlackKing);
                     m.set_castle();
                     moves.push(m);
                 }
@@ -585,7 +518,7 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_moves(&self) -> Vec<skaak::_move::BitPackedMove> {
+    fn generate_moves(&self) -> Vec<chess::_move::BitPackedMove> {
         let mut moves = Vec::with_capacity(256);
 
         self.generate_pawn_moves(&mut moves);
@@ -598,7 +531,7 @@ impl MoveGenerator for Position {
         return moves;
     }
 
-    fn generate_legal_moves(&mut self) -> Vec<skaak::_move::BitPackedMove> {
+    fn generate_legal_moves(&mut self) -> Vec<chess::_move::BitPackedMove> {
         let mut moves = Vec::with_capacity(256);
 
         for m in self.generate_moves() {

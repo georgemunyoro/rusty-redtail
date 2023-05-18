@@ -1,4 +1,4 @@
-use crate::skaak::square::Square;
+use crate::chess::square::Square;
 
 pub static ROOK_POSITIONAL_SCORE: [i32; 64] = [
     50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 0, 0, 10, 20, 20, 10, 0, 0, 0,

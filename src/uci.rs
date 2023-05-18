@@ -5,9 +5,9 @@ use std::{
 
 use crate::{
     board::{self, Board, Position},
-    chess, evaluation,
+    search::evaluate::*,
     movegen::MoveGenerator,
-    skaak,
+    chess,
     tt::{self},
 };
 
@@ -17,7 +17,7 @@ struct SearchThreadMessage {
     /// We send the position as an FEN string, so we don't have to worry about
     /// cloning it and sending it across threads.
     position: Option<String>,
-    options: Option<evaluation::SearchOptions>,
+    options: Option<SearchOptions>,
 }
 
 impl SearchThreadMessage {
@@ -58,7 +58,7 @@ impl UCI {
             let mut position = board::Position::new(None);
             position.set_fen(String::from(chess::constants::STARTING_FEN));
 
-            let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new()));
+            let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new(1024)));
 
             let running = Arc::new(Mutex::new(true));
             let mut eval_handles = vec![];
@@ -89,7 +89,7 @@ impl UCI {
                                         let mut eval_position = board::Position::new(None);
                                         eval_position.set_fen(String::from(position_fen_clone));
 
-                                        let mut evaluator = evaluation::Evaluator::new();
+                                        let mut evaluator = Evaluator::new();
                                         let bestmove = evaluator.get_best_move(
                                             &mut eval_position,
                                             options,
@@ -205,7 +205,7 @@ impl UCI {
                     .unwrap();
                 }
                 "go" => {
-                    let mut options = evaluation::SearchOptions::new();
+                    let mut options = SearchOptions::new();
                     for i in 1..tokens.len() {
                         match tokens[i] {
                             "infinite" => options.infinite = true,
@@ -260,7 +260,7 @@ pub fn parse_and_make_moves(position: &mut board::Position, moves: Vec<&str>) {
 pub fn parse_move(
     position: &mut board::Position,
     move_string: &str,
-) -> Option<skaak::_move::BitPackedMove> {
+) -> Option<chess::_move::BitPackedMove> {
     let moves = position.generate_moves();
 
     for m in moves {
