@@ -7,11 +7,17 @@ use crate::{
     board::{Board, Position},
     chess::{self, PrioritizedMove},
     movegen::MoveGenerator,
-    skaak,
+    skaak::{self, piece::Piece},
     tt::{self, TranspositionTable},
+    utils,
 };
 
 pub const MAX_PLY: usize = 64;
+
+const GET_RANK: [u8; 64] = [
+    7, 7, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4,
+    3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+];
 
 static _MVV_LVA: [[u32; 12]; 12] = [
     [105, 205, 305, 405, 505, 605, 105, 205, 305, 405, 505, 605],
@@ -30,6 +36,10 @@ static _MVV_LVA: [[u32; 12]; 12] = [
 
 const _REDUCTION_LIMIT: u8 = 3;
 const _FULL_DEPTH_MOVES: u8 = 3;
+
+const DOUBLED_PAWN_PENALTY: i32 = -10;
+const ISOLATED_PAWN_PENALTY: i32 = -10;
+const PASSED_PAWN_BONUS: [i32; 8] = [0, 5, 10, 20, 35, 60, 100, 200];
 
 #[derive(Debug)]
 pub struct PositionEvaluation {
@@ -116,6 +126,7 @@ impl Evaluator {
         running: Arc<Mutex<bool>>,
         transposition_table: Arc<Mutex<TranspositionTable>>,
         thread_id: usize,
+        start_depth: u8,
     ) -> Option<skaak::_move::BitPackedMove> {
         self.result = PositionEvaluation {
             score: 0,
@@ -133,11 +144,11 @@ impl Evaluator {
         self.options = options;
         self.running = running;
         self.tt = transposition_table;
-        self.started_at = self._get_time_ms();
+        self.started_at = Evaluator::_get_time_ms();
 
         let mut alpha = -50000;
         let mut beta = 50000;
-        let mut current_depth = 1;
+        let mut current_depth = start_depth;
 
         let mut pv_line_completed_so_far = Vec::new();
 
@@ -148,7 +159,7 @@ impl Evaluator {
                 break;
             }
 
-            let start_time = self._get_time_ms();
+            let start_time = Evaluator::_get_time_ms();
 
             let score = self.negamax(position, alpha, beta, current_depth, false);
 
@@ -188,7 +199,7 @@ impl Evaluator {
         return Some(b);
     }
 
-    fn negamax(
+    pub fn negamax(
         &mut self,
         position: &mut Position,
         _alpha: i32,
@@ -422,8 +433,8 @@ impl Evaluator {
         return alpha;
     }
 
-    fn print_info(&self, position: &mut Position, start_time: u128) {
-        let stop_time: u128 = self._get_time_ms();
+    pub fn print_info(&self, position: &mut Position, start_time: u128) {
+        let stop_time: u128 = Evaluator::_get_time_ms();
         let nps: i32 =
             (self.result.nodes as f64 / ((stop_time - start_time) as f64 / 1000.0)) as i32;
         let pv_line_found: Vec<tt::TranspositionTableEntry> =
@@ -471,7 +482,7 @@ impl Evaluator {
             return true;
         }
 
-        let elapsed: u128 = self._get_time_ms() - self.started_at;
+        let elapsed: u128 = Evaluator::_get_time_ms() - self.started_at;
 
         match self.options.movetime {
             Some(movetime) => {
@@ -505,21 +516,21 @@ impl Evaluator {
 
     fn _has_non_pawn_material(&self, position: &mut Position) -> bool {
         if position.turn == chess::Color::White {
-            (position.bitboards[chess::Piece::WhiteBishop as usize]
-                + position.bitboards[chess::Piece::WhiteKnight as usize]
-                + position.bitboards[chess::Piece::WhiteRook as usize]
-                + position.bitboards[chess::Piece::WhiteQueen as usize])
+            (position.bitboards[Piece::WhiteBishop as usize]
+                + position.bitboards[Piece::WhiteKnight as usize]
+                + position.bitboards[Piece::WhiteRook as usize]
+                + position.bitboards[Piece::WhiteQueen as usize])
                 != 0
         } else {
-            (position.bitboards[chess::Piece::BlackBishop as usize]
-                + position.bitboards[chess::Piece::BlackKnight as usize]
-                + position.bitboards[chess::Piece::BlackRook as usize]
-                + position.bitboards[chess::Piece::BlackQueen as usize])
+            (position.bitboards[Piece::BlackBishop as usize]
+                + position.bitboards[Piece::BlackKnight as usize]
+                + position.bitboards[Piece::BlackRook as usize]
+                + position.bitboards[Piece::BlackQueen as usize])
                 != 0
         }
     }
 
-    fn _get_time_ms(&self) -> u128 {
+    pub fn _get_time_ms() -> u128 {
         let now: std::time::SystemTime = std::time::SystemTime::now();
         let since_the_epoch: std::time::Duration = now
             .duration_since(std::time::UNIX_EPOCH)
@@ -577,7 +588,72 @@ impl Evaluator {
     }
 
     pub fn evaluate(&mut self, position: &mut Position) -> i32 {
-        return position.material[position.turn as usize]
+        let mut score = position.material[position.turn as usize]
             - position.material[(!position.turn) as usize];
+
+        let mut white_score = 0;
+        let mut black_score = 0;
+
+        let mut white_pawns = position.bitboards[Piece::WhitePawn as usize];
+        while white_pawns != 0 {
+            let square = utils::pop_lsb(&mut white_pawns);
+            let doubled_pawns = utils::count_bits(
+                position.bitboards[Piece::WhitePawn as usize]
+                    & position.file_masks[square as usize],
+            );
+            if doubled_pawns > 1 {
+                white_score += DOUBLED_PAWN_PENALTY as i32 * doubled_pawns as i32;
+            }
+
+            if (position.bitboards[Piece::WhitePawn as usize]
+                & position.isolated_pawn_masks[square as usize])
+                == 0
+            {
+                white_score += ISOLATED_PAWN_PENALTY as i32;
+            }
+
+            if (position.white_passed_pawn_masks[square as usize]
+                & position.bitboards[Piece::BlackPawn as usize])
+                == 0
+            {
+                white_score += PASSED_PAWN_BONUS[GET_RANK[square as usize] as usize] as i32
+            }
+        }
+
+        let mut black_pawns = position.bitboards[Piece::BlackPawn as usize];
+        while black_pawns != 0 {
+            let square = utils::pop_lsb(&mut black_pawns);
+            let doubled_pawns = utils::count_bits(
+                position.bitboards[Piece::BlackPawn as usize]
+                    & position.file_masks[square as usize],
+            );
+            if doubled_pawns > 1 {
+                black_score += DOUBLED_PAWN_PENALTY as i32 * doubled_pawns as i32;
+            }
+
+            if (position.bitboards[Piece::BlackPawn as usize]
+                & position.isolated_pawn_masks[square as usize])
+                == 0
+            {
+                black_score += ISOLATED_PAWN_PENALTY as i32;
+            }
+
+            if (position.black_passed_pawn_masks[square as usize]
+                & position.bitboards[Piece::WhitePawn as usize])
+                == 0
+            {
+                black_score += PASSED_PAWN_BONUS[7 - GET_RANK[square as usize] as usize] as i32
+            }
+        }
+
+        if position.turn == chess::Color::White {
+            score += white_score;
+            score -= black_score;
+        } else {
+            score += black_score;
+            score -= white_score;
+        }
+
+        return score;
     }
 }

@@ -4,7 +4,7 @@ use crate::{
     skaak,
 };
 
-const HASH_SIZE: usize = 0x1000000;
+const HASH_SIZE: usize = 0x2000000;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
@@ -105,7 +105,8 @@ impl TranspositionTable {
             self.size += 1;
             replace = true;
         } else {
-            if self.table[hash_index].age < self.age || self.table[hash_index].get_depth() <= depth {
+            if self.table[hash_index].age < self.age || self.table[hash_index].get_depth() <= depth
+            {
                 replace = true;
             }
         }
@@ -178,7 +179,6 @@ impl TranspositionTable {
             if entry.smp_key != (position.hash ^ entry.smp_data)
                 || entry.get_move() == skaak::_move::BitPackedMove::default()
                 || pv_line.len() > 64
-                || positions_encountered.contains(&position.hash)
             {
                 break;
             }
