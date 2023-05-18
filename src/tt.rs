@@ -97,28 +97,28 @@ impl TranspositionTable {
         depth: u8,
         alpha: i32,
         beta: i32,
-    ) -> Option<(i32, TranspositionTableEntryFlag)> {
+    ) -> TranspositionTableEntry {
         let entry: TranspositionTableEntry = self.table[key as usize & (self.hash_size - 1)];
 
         if entry.key == (key ^ entry.data) {
             if entry.get_depth() >= depth {
                 if entry.get_flag() == TranspositionTableEntryFlag::EXACT {
-                    return Some((entry.get_value(), entry.get_flag()));
+                    return entry;
                 }
                 if entry.get_flag() == TranspositionTableEntryFlag::ALPHA
                     && entry.get_value() <= alpha
                 {
-                    return Some((alpha, entry.get_flag()));
+                    return entry;
                 }
                 if entry.get_flag() == TranspositionTableEntryFlag::BETA
                     && entry.get_value() >= beta
                 {
-                    return Some((beta, entry.get_flag()));
+                    return entry;
                 }
             }
         }
 
-        return None;
+        return TranspositionTableEntry::new();
     }
 
     /// Returns how full the table is, as a number between 0 and 1000.
@@ -200,6 +200,11 @@ impl TranspositionTableEntry {
     /// Returns the type of score (exact, alpha, beta, or null).
     pub fn get_flag(&self) -> TranspositionTableEntryFlag {
         return TranspositionTableEntryFlag::from_u8((self.data >> 25) as u8 & 0x3);
+    }
+
+    /// Returns whether the entry is valid.
+    pub fn is_valid(&self) -> bool {
+        return self.key != 0;
     }
 
     /// Returns the evaluation of the position.

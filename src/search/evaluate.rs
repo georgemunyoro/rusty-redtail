@@ -222,19 +222,19 @@ impl Evaluator {
 
         self.result.nodes += 1;
 
-        if let Some(tt_value) =
-            self.tt
-                .lock()
-                .unwrap()
-                .probe_entry(position.hash, depth, alpha, beta)
-        {
-            if tt_value.1 == tt::TranspositionTableEntryFlag::EXACT {
-                if self.result.ply == 0 {
-                    self.result.depth = depth;
-                    self.result.score = tt_value.0;
-                }
+        let tt_entry = self
+            .tt
+            .lock()
+            .unwrap()
+            .probe_entry(position.hash, depth, alpha, beta);
+
+        if tt_entry.is_valid() {
+            if tt_entry.get_flag() == tt::TranspositionTableEntryFlag::EXACT && self.result.ply == 0
+            {
+                self.result.depth = depth;
+                self.result.score = tt_entry.get_value();
             }
-            return tt_value.0;
+            return tt_entry.get_value();
         }
 
         if depth == 0 {
