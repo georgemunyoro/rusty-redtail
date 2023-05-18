@@ -617,6 +617,50 @@ impl Evaluator {
             }
         }
 
+        let mut white_rooks = position.bitboards[Piece::WhiteRook as usize];
+        while white_rooks != 0 {
+            let square = utils::pop_lsb(&mut white_rooks);
+
+            // Semi open files
+            if ((position.bitboards[Piece::WhitePawn as usize])
+                & position.file_masks[square as usize])
+                == 0
+            {
+                white_score += SEMI_OPEN_FILE_SCORE;
+            }
+
+            // Open files
+            if ((position.bitboards[Piece::WhitePawn as usize]
+                | position.bitboards[Piece::BlackPawn as usize])
+                & position.file_masks[square as usize])
+                == 0
+            {
+                white_score += OPEN_FILE_SCORE;
+            }
+        }
+
+        let mut black_rooks = position.bitboards[Piece::BlackRook as usize];
+        while black_rooks != 0 {
+            let square = utils::pop_lsb(&mut black_rooks);
+
+            // Semi open files
+            if ((position.bitboards[Piece::BlackPawn as usize])
+                & position.file_masks[square as usize])
+                == 0
+            {
+                black_score += SEMI_OPEN_FILE_SCORE;
+            }
+
+            // Open files
+            if ((position.bitboards[Piece::WhitePawn as usize]
+                | position.bitboards[Piece::BlackPawn as usize])
+                & position.file_masks[square as usize])
+                == 0
+            {
+                black_score += OPEN_FILE_SCORE;
+            }
+        }
+
         if position.turn == Color::White {
             score += white_score;
             score -= black_score;

@@ -5,7 +5,13 @@ use crate::{
         self, castling_rights::CastlingRights, color::Color, piece::Piece, square::Square,
         square::SQUARE_ITER,
     },
-    pst,
+    pst::{
+        END_BISHOP_POSITIONAL_SCORE, END_KING_POSITIONAL_SCORE, END_KNIGHT_POSITIONAL_SCORE,
+        END_PAWN_POSITIONAL_SCORE, END_QUEEN_POSITIONAL_SCORE, END_ROOK_POSITIONAL_SCORE,
+        MIRROR_SCORE, OPEN_BISHOP_POSITIONAL_SCORE, OPEN_KING_POSITIONAL_SCORE,
+        OPEN_KNIGHT_POSITIONAL_SCORE, OPEN_PAWN_POSITIONAL_SCORE, OPEN_QUEEN_POSITIONAL_SCORE,
+        OPEN_ROOK_POSITIONAL_SCORE,
+    },
     utils::{self, pop_lsb},
 };
 
@@ -72,7 +78,7 @@ pub trait Board {
     fn draw(&mut self);
     fn set_fen(&mut self, fen: String);
     fn is_square_attacked(&self, square: Square, color: Color) -> bool;
-    fn get_game_phase_score(&self) -> u64;
+    fn get_game_phase_score(&self) -> i32;
 
     fn is_in_check(&self) -> bool;
 
@@ -278,16 +284,20 @@ impl Board for Position {
             }
 
             utils::set_bit(&mut self.bitboards[Piece::from(c) as usize], pos);
-            let piece_color = if c.is_uppercase() {
-                Color::White
-            } else {
-                Color::Black
-            };
-
-            self.material[piece_color as usize] +=
-                _get_piece_value(Piece::from(c), pos as usize, self.get_game_phase_score());
-
             pos += 1;
+        }
+
+        for i in 0..64 {
+            let piece = self.get_piece_at_square(i);
+            if piece == chess::piece::Piece::Empty {
+                continue;
+            }
+            let v = _get_piece_value(piece, i as usize, self.get_game_phase_score());
+            if piece as usize >= 6 {
+                self.material[Color::Black as usize] += v;
+            } else {
+                self.material[Color::White as usize] += v;
+            }
         }
 
         // Set the turn
@@ -410,18 +420,27 @@ impl Board for Position {
         return false;
     }
 
-    fn get_game_phase_score(&self) -> u64 {
-        (4 * utils::count_bits(
+    fn get_game_phase_score(&self) -> i32 {
+        (utils::count_bits(
             self.bitboards[Piece::BlackBishop as usize]
                 | self.bitboards[Piece::WhiteBishop as usize],
-        )) + (4 * utils::count_bits(
-            self.bitboards[Piece::BlackKnight as usize]
-                | self.bitboards[Piece::WhiteKnight as usize],
-        )) + (4 * utils::count_bits(
-            self.bitboards[Piece::BlackRook as usize] | self.bitboards[Piece::WhiteRook as usize],
-        )) + (2 * utils::count_bits(
-            self.bitboards[Piece::WhiteQueen as usize] | self.bitboards[Piece::BlackQueen as usize],
-        ))
+        ) as i32
+            * 365)
+            + (utils::count_bits(
+                self.bitboards[Piece::BlackKnight as usize]
+                    | self.bitboards[Piece::WhiteKnight as usize],
+            ) as i32
+                * 337)
+            + (utils::count_bits(
+                self.bitboards[Piece::BlackRook as usize]
+                    | self.bitboards[Piece::WhiteRook as usize],
+            ) as i32
+                * 477)
+            + (utils::count_bits(
+                self.bitboards[Piece::WhiteQueen as usize]
+                    | self.bitboards[Piece::BlackQueen as usize],
+            ) as i32
+                * 1025)
     }
 
     fn make_move(&mut self, m: chess::_move::BitPackedMove, only_captures: bool) -> bool {
@@ -1344,6 +1363,51 @@ mod tests {
     }
 }
 
+const OPENING_GAME_PHASE_SCORE: i32 = 6192;
+const ENDGAME_PHASE_SCORE: i32 = 518;
+
+const OPENING_PIECE_SCORES: [i32; 12] = [
+    82, 337, 365, 477, 1025, 12000, 82, 337, 365, 477, 1025, 12000,
+];
+
+const ENDING_PIECE_SCORES: [i32; 12] = [
+    82, 337, 365, 477, 1025, 12000, 82, 337, 365, 477, 1025, 12000,
+];
+
+const OPENING_PIECE_PST_MAP: [[i32; 64]; 12] = [
+    // White pieces
+    OPEN_PAWN_POSITIONAL_SCORE,
+    OPEN_KNIGHT_POSITIONAL_SCORE,
+    OPEN_BISHOP_POSITIONAL_SCORE,
+    OPEN_ROOK_POSITIONAL_SCORE,
+    OPEN_QUEEN_POSITIONAL_SCORE,
+    OPEN_KING_POSITIONAL_SCORE,
+    // Black pieces
+    OPEN_PAWN_POSITIONAL_SCORE,
+    OPEN_KNIGHT_POSITIONAL_SCORE,
+    OPEN_BISHOP_POSITIONAL_SCORE,
+    OPEN_ROOK_POSITIONAL_SCORE,
+    OPEN_QUEEN_POSITIONAL_SCORE,
+    OPEN_KING_POSITIONAL_SCORE,
+];
+
+const ENDING_PIECE_PST_MAP: [[i32; 64]; 12] = [
+    // White pieces
+    END_PAWN_POSITIONAL_SCORE,
+    END_KNIGHT_POSITIONAL_SCORE,
+    END_BISHOP_POSITIONAL_SCORE,
+    END_ROOK_POSITIONAL_SCORE,
+    END_QUEEN_POSITIONAL_SCORE,
+    END_KING_POSITIONAL_SCORE,
+    // Black pieces
+    END_PAWN_POSITIONAL_SCORE,
+    END_KNIGHT_POSITIONAL_SCORE,
+    END_BISHOP_POSITIONAL_SCORE,
+    END_ROOK_POSITIONAL_SCORE,
+    END_QUEEN_POSITIONAL_SCORE,
+    END_KING_POSITIONAL_SCORE,
+];
+
 /*
         Material score values used for tapered evaluation
 
@@ -1351,62 +1415,57 @@ mod tests {
 opening  -  82    337     365     477   1025   12000
 endgame  -  94    281     297     512   936    12000
 */
-pub fn _get_piece_value(piece: Piece, square: usize, phase: u64) -> i32 {
+pub fn _get_piece_value(piece: Piece, square: usize, game_phase_score: i32) -> i32 {
     if (piece as usize) < (Piece::BlackPawn as usize) {
-        match piece {
-            Piece::WhitePawn => {
-                return pst::PAWN_POSITIONAL_SCORE[square]
-                    + (((82 * (256 - phase as i32)) + (94 * phase as i32)) / 256);
-            }
-            Piece::WhiteKnight => {
-                return pst::KNIGHT_POSITIONAL_SCORE[square]
-                    + (((337 * (256 - phase as i32)) + (281 * phase as i32)) / 256);
-            }
-            Piece::WhiteBishop => {
-                return pst::BISHOP_POSITIONAL_SCORE[square]
-                    + (((365 * (256 - phase as i32)) + (297 * phase as i32)) / 256);
-            }
-            Piece::WhiteRook => {
-                return pst::ROOK_POSITIONAL_SCORE[square]
-                    + (((477 * (256 - phase as i32)) + (512 * phase as i32)) / 256);
-            }
-            Piece::WhiteQueen => {
-                return pst::ROOK_POSITIONAL_SCORE[square]
-                    + pst::BISHOP_POSITIONAL_SCORE[square]
-                    + (((1025 * (256 - phase as i32)) + (936 * phase as i32)) / 256);
-            }
-            Piece::WhiteKing => {
-                return pst::KING_POSITIONAL_SCORE[square] + 12000;
-            }
-            _ => return 0,
+        let mut piece_value = 0;
+
+        if game_phase_score > OPENING_GAME_PHASE_SCORE {
+            // opening
+            piece_value += OPENING_PIECE_SCORES[piece as usize]
+                + OPENING_PIECE_PST_MAP[piece as usize][square];
+        } else if game_phase_score < ENDGAME_PHASE_SCORE {
+            // endgame
+            piece_value +=
+                ENDING_PIECE_SCORES[piece as usize] + ENDING_PIECE_PST_MAP[piece as usize][square];
+        } else {
+            // middlegame
+            piece_value += (OPENING_PIECE_SCORES[piece as usize] * game_phase_score
+                + ENDING_PIECE_SCORES[piece as usize]
+                    * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+                / OPENING_GAME_PHASE_SCORE;
+
+            piece_value += (OPENING_PIECE_PST_MAP[piece as usize][square] * game_phase_score
+                + ENDING_PIECE_PST_MAP[piece as usize][square]
+                    * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+                / OPENING_GAME_PHASE_SCORE;
         };
+
+        return piece_value;
     } else {
-        match piece {
-            Piece::BlackPawn => {
-                return pst::PAWN_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
-                    + (((82 * (256 - phase as i32)) + (94 * phase as i32)) / 256);
-            }
-            Piece::BlackKnight => {
-                return pst::KNIGHT_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
-                    + (((337 * (256 - phase as i32)) + (281 * phase as i32)) / 256);
-            }
-            Piece::BlackBishop => {
-                return pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
-                    + (((365 * (256 - phase as i32)) + (297 * phase as i32)) / 256);
-            }
-            Piece::BlackRook => {
-                return pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
-                    + (((477 * (256 - phase as i32)) + (512 * phase as i32)) / 256);
-            }
-            Piece::BlackQueen => {
-                return (pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
-                    + pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize])
-                    + (((1025 * (256 - phase as i32)) + (936 * phase as i32)) / 256);
-            }
-            Piece::BlackKing => {
-                return pst::KING_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 12000;
-            }
-            _ => return 0,
-        }
+        let mut piece_value = 0;
+
+        if game_phase_score > OPENING_GAME_PHASE_SCORE {
+            // opening
+            piece_value += OPENING_PIECE_SCORES[piece as usize]
+                + OPENING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize];
+        } else if game_phase_score < ENDGAME_PHASE_SCORE {
+            // endgame
+            piece_value += ENDING_PIECE_SCORES[piece as usize]
+                + ENDING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize];
+        } else {
+            // middlegame
+            piece_value += (OPENING_PIECE_SCORES[piece as usize] * game_phase_score
+                + ENDING_PIECE_SCORES[piece as usize]
+                    * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+                / OPENING_GAME_PHASE_SCORE;
+
+            piece_value += (OPENING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize]
+                * game_phase_score
+                + ENDING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize]
+                    * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+                / OPENING_GAME_PHASE_SCORE;
+        };
+
+        return piece_value;
     }
 }
