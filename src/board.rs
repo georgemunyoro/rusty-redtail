@@ -1,162 +1,20 @@
+pub mod constants;
+
 use crate::{
-    chess, pst,
+    chess::{
+        self, castling_rights::CastlingRights, color::Color, piece::Piece, square::Square,
+        square::SQUARE_ITER,
+    },
+    pst,
     utils::{self, pop_lsb},
 };
-
-mod constants {
-    pub static BISHOP_RELEVANT_BITS: [u32; 64] = [
-        6, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 7, 9, 9, 7,
-        5, 5, 5, 5, 7, 9, 9, 7, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5,
-        5, 5, 5, 6,
-    ];
-
-    pub static ROOK_RELEVANT_BITS: [u32; 64] = [
-        12, 11, 11, 11, 11, 11, 11, 12, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10,
-        11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10,
-        10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 12, 11, 11, 11, 11, 11, 11, 12,
-    ];
-
-    pub static BISHOP_MAGIC_NUMBERS: [u64; 64] = [
-        0x40040844404084u64,
-        0x2004208a004208u64,
-        0x10190041080202u64,
-        0x108060845042010u64,
-        0x581104180800210u64,
-        0x2112080446200010u64,
-        0x1080820820060210u64,
-        0x3c0808410220200u64,
-        0x4050404440404u64,
-        0x21001420088u64,
-        0x24d0080801082102u64,
-        0x1020a0a020400u64,
-        0x40308200402u64,
-        0x4011002100800u64,
-        0x401484104104005u64,
-        0x801010402020200u64,
-        0x400210c3880100u64,
-        0x404022024108200u64,
-        0x810018200204102u64,
-        0x4002801a02003u64,
-        0x85040820080400u64,
-        0x810102c808880400u64,
-        0xe900410884800u64,
-        0x8002020480840102u64,
-        0x220200865090201u64,
-        0x2010100a02021202u64,
-        0x152048408022401u64,
-        0x20080002081110u64,
-        0x4001001021004000u64,
-        0x800040400a011002u64,
-        0xe4004081011002u64,
-        0x1c004001012080u64,
-        0x8004200962a00220u64,
-        0x8422100208500202u64,
-        0x2000402200300c08u64,
-        0x8646020080080080u64,
-        0x80020a0200100808u64,
-        0x2010004880111000u64,
-        0x623000a080011400u64,
-        0x42008c0340209202u64,
-        0x209188240001000u64,
-        0x400408a884001800u64,
-        0x110400a6080400u64,
-        0x1840060a44020800u64,
-        0x90080104000041u64,
-        0x201011000808101u64,
-        0x1a2208080504f080u64,
-        0x8012020600211212u64,
-        0x500861011240000u64,
-        0x180806108200800u64,
-        0x4000020e01040044u64,
-        0x300000261044000au64,
-        0x802241102020002u64,
-        0x20906061210001u64,
-        0x5a84841004010310u64,
-        0x4010801011c04u64,
-        0xa010109502200u64,
-        0x4a02012000u64,
-        0x500201010098b028u64,
-        0x8040002811040900u64,
-        0x28000010020204u64,
-        0x6000020202d0240u64,
-        0x8918844842082200u64,
-        0x4010011029020020u64,
-    ];
-
-    pub static ROOK_MAGIC_NUMBERS: [u64; 64] = [
-        0x8a80104000800020u64,
-        0x140002000100040u64,
-        0x2801880a0017001u64,
-        0x100081001000420u64,
-        0x200020010080420u64,
-        0x3001c0002010008u64,
-        0x8480008002000100u64,
-        0x2080088004402900u64,
-        0x800098204000u64,
-        0x2024401000200040u64,
-        0x100802000801000u64,
-        0x120800800801000u64,
-        0x208808088000400u64,
-        0x2802200800400u64,
-        0x2200800100020080u64,
-        0x801000060821100u64,
-        0x80044006422000u64,
-        0x100808020004000u64,
-        0x12108a0010204200u64,
-        0x140848010000802u64,
-        0x481828014002800u64,
-        0x8094004002004100u64,
-        0x4010040010010802u64,
-        0x20008806104u64,
-        0x100400080208000u64,
-        0x2040002120081000u64,
-        0x21200680100081u64,
-        0x20100080080080u64,
-        0x2000a00200410u64,
-        0x20080800400u64,
-        0x80088400100102u64,
-        0x80004600042881u64,
-        0x4040008040800020u64,
-        0x440003000200801u64,
-        0x4200011004500u64,
-        0x188020010100100u64,
-        0x14800401802800u64,
-        0x2080040080800200u64,
-        0x124080204001001u64,
-        0x200046502000484u64,
-        0x480400080088020u64,
-        0x1000422010034000u64,
-        0x30200100110040u64,
-        0x100021010009u64,
-        0x2002080100110004u64,
-        0x202008004008002u64,
-        0x20020004010100u64,
-        0x2048440040820001u64,
-        0x101002200408200u64,
-        0x40802000401080u64,
-        0x4008142004410100u64,
-        0x2060820c0120200u64,
-        0x1001004080100u64,
-        0x20c020080040080u64,
-        0x2935610830022400u64,
-        0x44440041009200u64,
-        0x280001040802101u64,
-        0x2100190040002085u64,
-        0x80c0084100102001u64,
-        0x4024081001000421u64,
-        0x20030a0244872u64,
-        0x12001008414402u64,
-        0x2006104900a0804u64,
-        0x1004081002402u64,
-    ];
-}
 
 /// A chess position
 pub struct Position {
     pub bitboards: [u64; 12],
-    pub turn: chess::Color,
-    pub enpassant: Option<chess::Square>,
-    pub castling: chess::CastlingRights,
+    pub turn: Color,
+    pub enpassant: Option<Square>,
+    pub castling: CastlingRights,
 
     pub halfmove_clock: u32,
     pub fullmove_number: u32,
@@ -188,13 +46,20 @@ pub struct Position {
 
     pub hash: u64,
     pub material: [i32; 2],
+
+    pub file_masks: [u64; 64],
+    pub rank_masks: [u64; 64],
+    pub isolated_pawn_masks: [u64; 64],
+
+    pub white_passed_pawn_masks: [u64; 64],
+    pub black_passed_pawn_masks: [u64; 64],
 }
 
 pub struct HistoryEntry {
     pub bitboards: [u64; 12],
-    pub turn: chess::Color,
-    pub enpassant: Option<chess::Square>,
-    pub castling: chess::CastlingRights,
+    pub turn: Color,
+    pub enpassant: Option<Square>,
+    pub castling: CastlingRights,
     pub material: [i32; 2],
 
     pub halfmove_clock: u32,
@@ -206,12 +71,12 @@ pub trait Board {
     fn new(fen: Option<&str>) -> Position;
     fn draw(&mut self);
     fn set_fen(&mut self, fen: String);
-    fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool;
+    fn is_square_attacked(&self, square: Square, color: Color) -> bool;
     fn get_game_phase_score(&self) -> u64;
 
     fn is_in_check(&self) -> bool;
 
-    fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool;
+    fn make_move(&mut self, m: chess::_move::BitPackedMove, only_captures: bool) -> bool;
     fn unmake_move(&mut self);
     fn make_null_move(&mut self);
 
@@ -231,7 +96,7 @@ impl Board for Position {
     fn new(fen: Option<&str>) -> Position {
         let mut pos = Position {
             bitboards: [0; 12],
-            turn: chess::Color::White,
+            turn: Color::White,
 
             pawn_attacks: [[0; 64]; 2],
             knight_attacks: [0; 64],
@@ -247,7 +112,7 @@ impl Board for Position {
             magic_rook_attacks: vec![vec![0; 4096]; 64],
 
             enpassant: None,
-            castling: chess::CastlingRights::new(),
+            castling: CastlingRights::new(),
             halfmove_clock: 0,
             fullmove_number: 1,
 
@@ -264,12 +129,20 @@ impl Board for Position {
 
             hash: 0,
             material: [0, 0],
+
+            white_passed_pawn_masks: [0; 64],
+            black_passed_pawn_masks: [0; 64],
+
+            file_masks: [0; 64],
+            rank_masks: [0; 64],
+            isolated_pawn_masks: [0; 64],
         };
 
         pos.initialize_leaper_piece_attacks();
         pos.initialize_slider_piece_attacks();
         pos.initialize_slider_magic_attacks(false);
         pos.initialize_slider_magic_attacks(true);
+        pos.init_evaluation_masks();
 
         pos.init_zorbrist_keys();
         pos.update_occupancies();
@@ -285,15 +158,15 @@ impl Board for Position {
 
     /// Returns true if the current side's king is in check
     fn is_in_check(&self) -> bool {
-        let king_square = if self.turn == chess::Color::White {
-            utils::get_lsb(self.bitboards[chess::Piece::WhiteKing as usize])
+        let king_square = if self.turn == Color::White {
+            utils::get_lsb(self.bitboards[Piece::WhiteKing as usize])
         } else {
-            utils::get_lsb(self.bitboards[chess::Piece::BlackKing as usize])
+            utils::get_lsb(self.bitboards[Piece::BlackKing as usize])
         };
         if king_square >= 64 {
             return true;
         }
-        self.is_square_attacked(chess::Square::from(king_square), !self.turn)
+        self.is_square_attacked(Square::from(king_square), !self.turn)
     }
 
     /// Returns an FEN string representing the current position
@@ -312,7 +185,7 @@ impl Board for Position {
             }
 
             let piece = self.get_piece_at_square(i);
-            if piece == chess::Piece::Empty {
+            if piece == Piece::Empty {
                 empty += 1;
             } else {
                 if empty != 0 {
@@ -329,34 +202,22 @@ impl Board for Position {
         // Active color
         fen.push(' ');
         fen.push_str(match self.turn {
-            chess::Color::White => "w",
-            chess::Color::Black => "b",
+            Color::White => "w",
+            Color::Black => "b",
         });
 
         // Castling availability
         fen.push(' ');
-        if self
-            .castling
-            .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
-        {
+        if self.castling.can_castle(CastlingRights::WHITE_KINGSIDE) {
             fen.push('K');
         }
-        if self
-            .castling
-            .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
-        {
+        if self.castling.can_castle(CastlingRights::WHITE_QUEENSIDE) {
             fen.push('Q');
         }
-        if self
-            .castling
-            .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
-        {
+        if self.castling.can_castle(CastlingRights::BLACK_KINGSIDE) {
             fen.push('k');
         }
-        if self
-            .castling
-            .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
-        {
+        if self.castling.can_castle(CastlingRights::BLACK_QUEENSIDE) {
             fen.push('q');
         }
         if self.castling.get_rights_u8() == 0 {
@@ -416,32 +277,29 @@ impl Board for Position {
                 continue;
             }
 
-            utils::set_bit(&mut self.bitboards[chess::Piece::from(c) as usize], pos);
+            utils::set_bit(&mut self.bitboards[Piece::from(c) as usize], pos);
             let piece_color = if c.is_uppercase() {
-                chess::Color::White
+                Color::White
             } else {
-                chess::Color::Black
+                Color::Black
             };
 
-            self.material[piece_color as usize] += _get_piece_value(
-                chess::Piece::from(c),
-                pos as usize,
-                self.get_game_phase_score(),
-            );
+            self.material[piece_color as usize] +=
+                _get_piece_value(Piece::from(c), pos as usize, self.get_game_phase_score());
 
             pos += 1;
         }
 
         // Set the turn
-        self.turn = chess::Color::from(sections[1].chars().next().unwrap());
+        self.turn = Color::from(sections[1].chars().next().unwrap());
 
         // Set the castling rights
-        self.castling = chess::CastlingRights::from(sections[2]);
+        self.castling = CastlingRights::from(sections[2]);
 
         // Set the en passant square
         self.enpassant = match sections[3] {
             "-" => None,
-            _ => Some(chess::Square::from(sections[3])),
+            _ => Some(Square::from(sections[3])),
         };
 
         // Set the halfmove clock
@@ -455,11 +313,11 @@ impl Board for Position {
     }
 
     /// Returns true if the given square is attacked by the given color
-    fn is_square_attacked(&self, square: chess::Square, color: chess::Color) -> bool {
-        if color == chess::Color::White {
+    fn is_square_attacked(&self, square: Square, color: Color) -> bool {
+        if color == Color::White {
             // attacked by white pawns
-            if (self.pawn_attacks[chess::Color::Black as usize][square as usize]
-                & self.bitboards[chess::Piece::WhitePawn as usize])
+            if (self.pawn_attacks[Color::Black as usize][square as usize]
+                & self.bitboards[Piece::WhitePawn as usize])
                 != 0
             {
                 return true;
@@ -467,15 +325,15 @@ impl Board for Position {
 
             // attackd by white bishops
             if self.get_bishop_magic_attacks(square, self.get_both_occupancy())
-                & self.bitboards[chess::Piece::WhiteBishop as usize]
+                & self.bitboards[Piece::WhiteBishop as usize]
                 != 0
             {
                 return true;
             }
         } else {
             // attacked by black pawns
-            if (self.pawn_attacks[chess::Color::White as usize][square as usize]
-                & self.bitboards[chess::Piece::BlackPawn as usize])
+            if (self.pawn_attacks[Color::White as usize][square as usize]
+                & self.bitboards[Piece::BlackPawn as usize])
                 != 0
             {
                 return true;
@@ -483,7 +341,7 @@ impl Board for Position {
 
             // attackd by black bishops
             if self.get_bishop_magic_attacks(square, self.get_both_occupancy())
-                & self.bitboards[chess::Piece::BlackBishop as usize]
+                & self.bitboards[Piece::BlackBishop as usize]
                 != 0
             {
                 return true;
@@ -491,20 +349,20 @@ impl Board for Position {
         }
 
         // attacked by knights
-        let knight_piece = if color == chess::Color::White {
-            chess::Piece::WhiteKnight
+        let knight_piece = if color == Color::White {
+            Piece::WhiteKnight
         } else {
-            chess::Piece::BlackKnight
+            Piece::BlackKnight
         };
         if (self.knight_attacks[square as usize] & self.bitboards[knight_piece as usize]) != 0 {
             return true;
         }
 
         // attacked by bishops
-        let bishop_piece = if color == chess::Color::White {
-            chess::Piece::WhiteBishop
+        let bishop_piece = if color == Color::White {
+            Piece::WhiteBishop
         } else {
-            chess::Piece::BlackBishop
+            Piece::BlackBishop
         };
         if (self.get_bishop_magic_attacks(square, self.get_both_occupancy())
             & self.bitboards[bishop_piece as usize])
@@ -514,10 +372,10 @@ impl Board for Position {
         }
 
         // attacked by rooks
-        let rook_piece = if color == chess::Color::White {
-            chess::Piece::WhiteRook
+        let rook_piece = if color == Color::White {
+            Piece::WhiteRook
         } else {
-            chess::Piece::BlackRook
+            Piece::BlackRook
         };
         if (self.get_rook_magic_attacks(square, self.get_both_occupancy())
             & self.bitboards[rook_piece as usize])
@@ -527,10 +385,10 @@ impl Board for Position {
         }
 
         // attacked by queens
-        let queen_piece = if color == chess::Color::White {
-            chess::Piece::WhiteQueen
+        let queen_piece = if color == Color::White {
+            Piece::WhiteQueen
         } else {
-            chess::Piece::BlackQueen
+            Piece::BlackQueen
         };
         if (self.get_queen_magic_attacks(square, self.get_both_occupancy())
             & self.bitboards[queen_piece as usize])
@@ -540,10 +398,10 @@ impl Board for Position {
         }
 
         // attacked by kings
-        let king_piece = if color == chess::Color::White {
-            chess::Piece::WhiteKing
+        let king_piece = if color == Color::White {
+            Piece::WhiteKing
         } else {
-            chess::Piece::BlackKing
+            Piece::BlackKing
         };
         if (self.king_attacks[square as usize] & self.bitboards[king_piece as usize]) != 0 {
             return true;
@@ -554,24 +412,20 @@ impl Board for Position {
 
     fn get_game_phase_score(&self) -> u64 {
         (4 * utils::count_bits(
-            self.bitboards[chess::Piece::BlackBishop as usize]
-                | self.bitboards[chess::Piece::WhiteBishop as usize],
+            self.bitboards[Piece::BlackBishop as usize]
+                | self.bitboards[Piece::WhiteBishop as usize],
         )) + (4 * utils::count_bits(
-            self.bitboards[chess::Piece::BlackKnight as usize]
-                | self.bitboards[chess::Piece::WhiteKnight as usize],
+            self.bitboards[Piece::BlackKnight as usize]
+                | self.bitboards[Piece::WhiteKnight as usize],
         )) + (4 * utils::count_bits(
-            self.bitboards[chess::Piece::BlackRook as usize]
-                | self.bitboards[chess::Piece::WhiteRook as usize],
+            self.bitboards[Piece::BlackRook as usize] | self.bitboards[Piece::WhiteRook as usize],
         )) + (2 * utils::count_bits(
-            self.bitboards[chess::Piece::WhiteQueen as usize]
-                | self.bitboards[chess::Piece::BlackQueen as usize],
+            self.bitboards[Piece::WhiteQueen as usize] | self.bitboards[Piece::BlackQueen as usize],
         ))
     }
 
-    fn make_move(&mut self, m: chess::Move, only_captures: bool) -> bool {
-        let is_capture = m.capture.is_some();
-
-        if only_captures && !is_capture {
+    fn make_move(&mut self, m: chess::_move::BitPackedMove, only_captures: bool) -> bool {
+        if only_captures && !m.is_capture() {
             return false;
         }
 
@@ -582,50 +436,63 @@ impl Board for Position {
         self.position_stack.push(history_entry);
 
         // set the moving piece
-        utils::set_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
+        utils::set_bit(
+            &mut self.bitboards[m.get_piece() as usize],
+            m.get_to() as u8,
+        );
         self.material[self.turn as usize] +=
-            _get_piece_value(m.piece, m.to as usize, game_phase_score);
+            _get_piece_value(m.get_piece(), m.get_to() as usize, game_phase_score);
 
         // remove the moving piece
-        utils::clear_bit(&mut self.bitboards[m.piece as usize], m.from as u8);
+        utils::clear_bit(
+            &mut self.bitboards[m.get_piece() as usize],
+            m.get_from() as u8,
+        );
         self.material[self.turn as usize] -=
-            _get_piece_value(m.piece, m.from as usize, game_phase_score);
+            _get_piece_value(m.get_piece(), m.get_from() as usize, game_phase_score);
 
         // handle captures
-        if is_capture {
-            let captured_piece = m.capture.unwrap();
+        if m.is_capture() {
+            let captured_piece = m.get_capture();
             // remove the captured piece
-            utils::clear_bit(&mut self.bitboards[captured_piece as usize], m.to as u8);
+            utils::clear_bit(
+                &mut self.bitboards[captured_piece as usize],
+                m.get_to() as u8,
+            );
             self.material[!self.turn as usize] -=
-                _get_piece_value(captured_piece, m.to as usize, game_phase_score);
+                _get_piece_value(captured_piece, m.get_to() as usize, game_phase_score);
         }
 
         // handle promotions
-        match m.promotion {
-            None => {}
-            Some(promotion_piece) => {
-                // remove the pawn
-                utils::clear_bit(&mut self.bitboards[m.piece as usize], m.to as u8);
-                self.material[self.turn as usize] -=
-                    _get_piece_value(m.piece, m.to as usize, game_phase_score);
-                // add the promoted piece
-                utils::set_bit(&mut self.bitboards[promotion_piece as usize], m.to as u8);
-                self.material[self.turn as usize] +=
-                    _get_piece_value(promotion_piece, m.to as usize, game_phase_score);
-            }
+
+        if m.is_promotion() {
+            // remove the pawn
+            utils::clear_bit(
+                &mut self.bitboards[m.get_piece() as usize],
+                m.get_to() as u8,
+            );
+            self.material[self.turn as usize] -=
+                _get_piece_value(m.get_piece(), m.get_to() as usize, game_phase_score);
+            // add the promoted piece
+            utils::set_bit(
+                &mut self.bitboards[m.get_promotion() as usize],
+                m.get_to() as u8,
+            );
+            self.material[self.turn as usize] +=
+                _get_piece_value(m.get_promotion(), m.get_to() as usize, game_phase_score);
         }
 
         // handle en passant
-        if m.en_passant {
-            let en_captured_square = if self.turn == chess::Color::White {
-                (m.to as u8) + 8
+        if m.is_enpassant() {
+            let en_captured_square = if self.turn == Color::White {
+                (m.get_to() as u8) + 8
             } else {
-                (m.to as u8) - 8
+                (m.get_to() as u8) - 8
             };
 
             let en_captured_piece = self.get_piece_at_square(en_captured_square);
 
-            if en_captured_piece != chess::Piece::Empty {
+            if en_captured_piece != Piece::Empty {
                 // remove the captured pawn
                 utils::clear_bit(
                     &mut self.bitboards[en_captured_piece as usize],
@@ -642,158 +509,120 @@ impl Board for Position {
         self.enpassant = None;
 
         // handle setting the en passant square during double pawn pushes
-        if m.piece == chess::Piece::WhitePawn || m.piece == chess::Piece::BlackPawn {
-            if m.from as i8 - m.to as i8 == 16 {
-                self.enpassant = Some(chess::Square::from(m.from as u8 - 8));
-            } else if m.from as i8 - m.to as i8 == -16 {
-                self.enpassant = Some(chess::Square::from(m.from as u8 + 8));
+        if m.get_piece() == Piece::WhitePawn || m.get_piece() == Piece::BlackPawn {
+            if m.get_from() as i8 - m.get_to() as i8 == 16 {
+                self.enpassant = Some(Square::from(m.get_from() as u8 - 8));
+            } else if m.get_from() as i8 - m.get_to() as i8 == -16 {
+                self.enpassant = Some(Square::from(m.get_from() as u8 + 8));
             }
         }
 
         // handle castling
-        if m.castle {
-            match m.to {
-                chess::Square::C1 => {
+        if m.is_castle() {
+            match m.get_to() {
+                Square::C1 => {
                     // white queen side
                     utils::clear_bit(
-                        &mut self.bitboards[chess::Piece::WhiteRook as usize],
-                        chess::Square::A1 as u8,
+                        &mut self.bitboards[Piece::WhiteRook as usize],
+                        Square::A1 as u8,
                     );
-                    self.material[self.turn as usize] -= _get_piece_value(
-                        chess::Piece::WhiteRook,
-                        chess::Square::A1 as usize,
-                        game_phase_score,
-                    );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(Piece::WhiteRook, Square::A1 as usize, game_phase_score);
 
                     utils::set_bit(
-                        &mut self.bitboards[chess::Piece::WhiteRook as usize],
-                        chess::Square::D1 as u8,
+                        &mut self.bitboards[Piece::WhiteRook as usize],
+                        Square::D1 as u8,
                     );
-                    self.material[self.turn as usize] += _get_piece_value(
-                        chess::Piece::WhiteRook,
-                        chess::Square::D1 as usize,
-                        game_phase_score,
-                    );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(Piece::WhiteRook, Square::D1 as usize, game_phase_score);
                 }
-                chess::Square::G1 => {
+                Square::G1 => {
                     // white king side
                     utils::clear_bit(
-                        &mut self.bitboards[chess::Piece::WhiteRook as usize],
-                        chess::Square::H1 as u8,
+                        &mut self.bitboards[Piece::WhiteRook as usize],
+                        Square::H1 as u8,
                     );
-                    self.material[self.turn as usize] -= _get_piece_value(
-                        chess::Piece::WhiteRook,
-                        chess::Square::H1 as usize,
-                        game_phase_score,
-                    );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(Piece::WhiteRook, Square::H1 as usize, game_phase_score);
 
                     utils::set_bit(
-                        &mut self.bitboards[chess::Piece::WhiteRook as usize],
-                        chess::Square::F1 as u8,
+                        &mut self.bitboards[Piece::WhiteRook as usize],
+                        Square::F1 as u8,
                     );
-                    self.material[self.turn as usize] += _get_piece_value(
-                        chess::Piece::WhiteRook,
-                        chess::Square::F1 as usize,
-                        game_phase_score,
-                    );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(Piece::WhiteRook, Square::F1 as usize, game_phase_score);
                 }
-                chess::Square::C8 => {
+                Square::C8 => {
                     // black queen side
                     utils::clear_bit(
-                        &mut self.bitboards[chess::Piece::BlackRook as usize],
-                        chess::Square::A8 as u8,
+                        &mut self.bitboards[Piece::BlackRook as usize],
+                        Square::A8 as u8,
                     );
-                    self.material[self.turn as usize] -= _get_piece_value(
-                        chess::Piece::BlackRook,
-                        chess::Square::A8 as usize,
-                        game_phase_score,
-                    );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(Piece::BlackRook, Square::A8 as usize, game_phase_score);
 
                     utils::set_bit(
-                        &mut self.bitboards[chess::Piece::BlackRook as usize],
-                        chess::Square::D8 as u8,
+                        &mut self.bitboards[Piece::BlackRook as usize],
+                        Square::D8 as u8,
                     );
-                    self.material[self.turn as usize] += _get_piece_value(
-                        chess::Piece::BlackRook,
-                        chess::Square::D8 as usize,
-                        game_phase_score,
-                    );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(Piece::BlackRook, Square::D8 as usize, game_phase_score);
                 }
-                chess::Square::G8 => {
+                Square::G8 => {
                     // black king side
                     utils::clear_bit(
-                        &mut self.bitboards[chess::Piece::BlackRook as usize],
-                        chess::Square::H8 as u8,
+                        &mut self.bitboards[Piece::BlackRook as usize],
+                        Square::H8 as u8,
                     );
-                    self.material[self.turn as usize] -= _get_piece_value(
-                        chess::Piece::BlackRook,
-                        chess::Square::H8 as usize,
-                        game_phase_score,
-                    );
+                    self.material[self.turn as usize] -=
+                        _get_piece_value(Piece::BlackRook, Square::H8 as usize, game_phase_score);
 
                     utils::set_bit(
-                        &mut self.bitboards[chess::Piece::BlackRook as usize],
-                        chess::Square::F8 as u8,
+                        &mut self.bitboards[Piece::BlackRook as usize],
+                        Square::F8 as u8,
                     );
-                    self.material[self.turn as usize] += _get_piece_value(
-                        chess::Piece::BlackRook,
-                        chess::Square::F8 as usize,
-                        game_phase_score,
-                    );
+                    self.material[self.turn as usize] +=
+                        _get_piece_value(Piece::BlackRook, Square::F8 as usize, game_phase_score);
                 }
                 _ => {}
             }
         }
 
-        if m.piece == chess::Piece::WhiteKing {
-            self.castling.remove_right(
-                chess::CastlingRights::WHITE_KINGSIDE | chess::CastlingRights::WHITE_QUEENSIDE,
-            );
-        } else if m.piece == chess::Piece::BlackKing {
-            self.castling.remove_right(
-                chess::CastlingRights::BLACK_KINGSIDE | chess::CastlingRights::BLACK_QUEENSIDE,
-            );
+        if m.get_piece() == Piece::WhiteKing {
+            self.castling
+                .remove_right(CastlingRights::WHITE_KINGSIDE | CastlingRights::WHITE_QUEENSIDE);
+        } else if m.get_piece() == Piece::BlackKing {
+            self.castling
+                .remove_right(CastlingRights::BLACK_KINGSIDE | CastlingRights::BLACK_QUEENSIDE);
         }
 
         // First move of a rook disables castling
-        if m.piece == chess::Piece::WhiteRook
-            && m.from == chess::Square::A1
-            && self
-                .castling
-                .can_castle(chess::CastlingRights::WHITE_QUEENSIDE)
+        if m.get_piece() == Piece::WhiteRook
+            && m.get_from() == Square::A1
+            && self.castling.can_castle(CastlingRights::WHITE_QUEENSIDE)
         {
-            self.castling
-                .remove_right(chess::CastlingRights::WHITE_QUEENSIDE);
+            self.castling.remove_right(CastlingRights::WHITE_QUEENSIDE);
         }
 
-        if m.piece == chess::Piece::WhiteRook
-            && m.from == chess::Square::H1
-            && self
-                .castling
-                .can_castle(chess::CastlingRights::WHITE_KINGSIDE)
+        if m.get_piece() == Piece::WhiteRook
+            && m.get_from() == Square::H1
+            && self.castling.can_castle(CastlingRights::WHITE_KINGSIDE)
         {
-            self.castling
-                .remove_right(chess::CastlingRights::WHITE_KINGSIDE);
+            self.castling.remove_right(CastlingRights::WHITE_KINGSIDE);
         }
 
-        if m.piece == chess::Piece::BlackRook
-            && m.from == chess::Square::A8
-            && self
-                .castling
-                .can_castle(chess::CastlingRights::BLACK_QUEENSIDE)
+        if m.get_piece() == Piece::BlackRook
+            && m.get_from() == Square::A8
+            && self.castling.can_castle(CastlingRights::BLACK_QUEENSIDE)
         {
-            self.castling
-                .remove_right(chess::CastlingRights::BLACK_QUEENSIDE);
+            self.castling.remove_right(CastlingRights::BLACK_QUEENSIDE);
         }
 
-        if m.piece == chess::Piece::BlackRook
-            && m.from == chess::Square::H8
-            && self
-                .castling
-                .can_castle(chess::CastlingRights::BLACK_KINGSIDE)
+        if m.get_piece() == Piece::BlackRook
+            && m.get_from() == Square::H8
+            && self.castling.can_castle(CastlingRights::BLACK_KINGSIDE)
         {
-            self.castling
-                .remove_right(chess::CastlingRights::BLACK_KINGSIDE);
+            self.castling.remove_right(CastlingRights::BLACK_KINGSIDE);
         }
 
         self.update_occupancies();
@@ -820,6 +649,63 @@ impl Board for Position {
 }
 
 impl Position {
+    pub fn set_file_rank_mask(&mut self, file_num: i32, rank_num: i32) -> u64 {
+        let mut mask: u64 = 0;
+
+        for rank in 0..8 {
+            for file in 0..8 {
+                let square = rank * 8 + file;
+
+                if file_num != -1 {
+                    if file == file_num {
+                        utils::set_bit(&mut mask, square as u8);
+                    }
+                } else if rank_num != -1 {
+                    if rank == rank_num {
+                        utils::set_bit(&mut mask, square as u8);
+                    }
+                }
+            }
+        }
+
+        return mask;
+    }
+
+    pub fn init_evaluation_masks(&mut self) {
+        for rank in 0..8 {
+            for file in 0..8 {
+                let square = rank * 8 + file;
+
+                self.file_masks[square] = self.set_file_rank_mask(file as i32, -1);
+                self.rank_masks[square] = self.set_file_rank_mask(-1, rank as i32);
+
+                self.isolated_pawn_masks[square] = self.set_file_rank_mask(file as i32 - 1, -1)
+                    | self.set_file_rank_mask(file as i32 + 1, -1);
+            }
+        }
+
+        for rank in 0..8 {
+            for file in 0..8 {
+                let square = rank * 8 + file;
+
+                let m = self.set_file_rank_mask(file as i32 - 1, -1)
+                    | self.set_file_rank_mask(file as i32 + 1, -1)
+                    | self.set_file_rank_mask(file as i32, -1);
+
+                self.white_passed_pawn_masks[square] = m;
+                self.black_passed_pawn_masks[square] = m;
+
+                for i in 0..(8 - rank) {
+                    self.white_passed_pawn_masks[square] &= !self.rank_masks[(7 - i) * 8 + file];
+                }
+
+                for i in 0..(rank + 1) {
+                    self.black_passed_pawn_masks[square] &= !self.rank_masks[i * 8 + file];
+                }
+            }
+        }
+    }
+
     pub fn update_hash(&mut self) {
         let mut hash: u64 = 0;
         for piece in 0..12 {
@@ -836,7 +722,7 @@ impl Position {
 
         hash ^= self.zobrist_castling_keys[self.castling.get_rights_u8() as usize];
 
-        if self.turn == chess::Color::Black {
+        if self.turn == Color::Black {
             hash ^= self.zobrist_turn_key;
         }
 
@@ -846,7 +732,7 @@ impl Position {
     pub fn init_zorbrist_keys(&mut self) {
         self.rand_seed = 1804289383;
 
-        for piece in (chess::Piece::WhitePawn as usize)..=(chess::Piece::BlackKing as usize) {
+        for piece in (Piece::WhitePawn as usize)..=(Piece::BlackKing as usize) {
             for square in 0..64 {
                 self.zobrist_piece_keys[piece as usize][square] =
                     utils::get_pseudorandom_number_u64(&mut self.rand_seed);
@@ -880,8 +766,8 @@ impl Position {
 
     /// updates the occupancies bitboards
     fn update_occupancies(&mut self) {
-        self.occupancies[chess::Color::Black as usize] = self.get_occupancy(chess::Color::Black);
-        self.occupancies[chess::Color::White as usize] = self.get_occupancy(chess::Color::White);
+        self.occupancies[Color::Black as usize] = self.get_occupancy(Color::Black);
+        self.occupancies[Color::White as usize] = self.get_occupancy(Color::White);
     }
 
     pub fn apply_history_entry(&mut self, entry: HistoryEntry) {
@@ -895,51 +781,51 @@ impl Position {
         self.material = entry.material;
     }
 
-    pub fn get_piece_at_square(&self, square: u8) -> chess::Piece {
-        for piece in chess::PIECE_ITER {
+    pub fn get_piece_at_square(&self, square: u8) -> Piece {
+        for piece in chess::piece::PIECE_ITER {
             if utils::get_bit(self.bitboards[piece as usize], square) != 0 {
                 return piece;
             }
         }
-        return chess::Piece::Empty;
+        return Piece::Empty;
     }
 
     fn initialize_leaper_piece_attacks(&mut self) {
         for i in 0..64 {
             // Pawns
-            self.pawn_attacks[chess::Color::White as usize][i] =
-                self.mask_pawn_attacks(chess::Square::from(i), chess::Color::White);
-            self.pawn_attacks[chess::Color::Black as usize][i] =
-                self.mask_pawn_attacks(chess::Square::from(i), chess::Color::Black);
+            self.pawn_attacks[Color::White as usize][i] =
+                self.mask_pawn_attacks(Square::from(i), Color::White);
+            self.pawn_attacks[Color::Black as usize][i] =
+                self.mask_pawn_attacks(Square::from(i), Color::Black);
 
             // Knights
-            self.knight_attacks[i] = self.mask_knight_attacks(chess::Square::from(i));
+            self.knight_attacks[i] = self.mask_knight_attacks(Square::from(i));
 
             // Kings
-            self.king_attacks[i] = self.mask_king_attacks(chess::Square::from(i));
+            self.king_attacks[i] = self.mask_king_attacks(Square::from(i));
         }
     }
 
     fn initialize_slider_piece_attacks(&mut self) {
         for i in 0..64 {
             // Bishops
-            self.bishop_attacks[i] = self.mask_bishop_attacks(chess::Square::from(i));
+            self.bishop_attacks[i] = self.mask_bishop_attacks(Square::from(i));
 
             // Rooks
-            self.rook_attacks[i] = self.mask_rook_attacks(chess::Square::from(i));
+            self.rook_attacks[i] = self.mask_rook_attacks(Square::from(i));
 
             // Queens
             self.queen_attacks[i] = self.rook_attacks[i] | self.bishop_attacks[i];
         }
     }
 
-    fn mask_pawn_attacks(&self, square: chess::Square, side: chess::Color) -> u64 {
+    fn mask_pawn_attacks(&self, square: Square, side: Color) -> u64 {
         let mut attacks: u64 = 0;
         let mut bitboard: u64 = 0;
 
         utils::set_bit(&mut bitboard, u8::from(square));
 
-        if side == chess::Color::White {
+        if side == Color::White {
             if (bitboard >> 7) & !(*chess::constants::FILE_A) != 0 {
                 attacks |= bitboard >> 7;
             }
@@ -948,7 +834,7 @@ impl Position {
             }
         }
 
-        if side == chess::Color::Black {
+        if side == Color::Black {
             if (bitboard << 7) & !(*chess::constants::FILE_H) != 0 {
                 attacks |= bitboard << 7;
             }
@@ -960,7 +846,7 @@ impl Position {
         return attacks;
     }
 
-    fn mask_knight_attacks(&self, square: chess::Square) -> u64 {
+    fn mask_knight_attacks(&self, square: Square) -> u64 {
         let mut attacks: u64 = 0;
         let mut bitboard: u64 = 0;
 
@@ -994,7 +880,7 @@ impl Position {
         return attacks;
     }
 
-    fn mask_king_attacks(&self, square: chess::Square) -> u64 {
+    fn mask_king_attacks(&self, square: Square) -> u64 {
         let mut attacks: u64 = 0;
         let mut bitboard: u64 = 0;
 
@@ -1029,7 +915,7 @@ impl Position {
         return attacks;
     }
 
-    fn mask_bishop_attacks(&self, square: chess::Square) -> u64 {
+    fn mask_bishop_attacks(&self, square: Square) -> u64 {
         let mut attacks: u64 = 0;
 
         let square_rank = i8::from(square) / 8;
@@ -1057,7 +943,7 @@ impl Position {
         return attacks;
     }
 
-    fn mask_rook_attacks(&self, square: chess::Square) -> u64 {
+    fn mask_rook_attacks(&self, square: Square) -> u64 {
         let mut attacks: u64 = 0;
 
         let square_rank = i8::from(square) / 8;
@@ -1082,7 +968,7 @@ impl Position {
         return attacks;
     }
 
-    fn generate_bishop_attacks_on_the_fly(&self, square: chess::Square, blockers: u64) -> u64 {
+    fn generate_bishop_attacks_on_the_fly(&self, square: Square, blockers: u64) -> u64 {
         let mut attacks: u64 = 0;
 
         let square_rank = i8::from(square) / 8;
@@ -1126,7 +1012,7 @@ impl Position {
         return attacks;
     }
 
-    fn generate_rook_attacks_on_the_fly(&self, square: chess::Square, blockers: u64) -> u64 {
+    fn generate_rook_attacks_on_the_fly(&self, square: Square, blockers: u64) -> u64 {
         let mut attacks: u64 = 0;
 
         let square_rank = i8::from(square) / 8;
@@ -1189,12 +1075,7 @@ impl Position {
             & utils::get_pseudorandom_number_u64(&mut self.rand_seed);
     }
 
-    fn _find_magic_number(
-        &mut self,
-        square: chess::Square,
-        relevant_bits: u32,
-        is_bishop: bool,
-    ) -> u64 {
+    fn _find_magic_number(&mut self, square: Square, relevant_bits: u32, is_bishop: bool) -> u64 {
         let mut occupancies: [u64; 4096] = [0u64; 4096];
         let mut attacks: [u64; 4096] = [0u64; 4096];
         let mut _used_attacks: Vec<u64> = vec![0u64; std::mem::size_of::<u64>() * 4096];
@@ -1253,7 +1134,7 @@ impl Position {
         println!("Generating magic numbers...");
         println!("--------------------------------\n");
 
-        for square in chess::SQUARE_ITER {
+        for square in SQUARE_ITER {
             let magic_number = self._find_magic_number(
                 square,
                 constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
@@ -1265,7 +1146,7 @@ impl Position {
 
         println!("--------------------------------");
 
-        for square in chess::SQUARE_ITER {
+        for square in SQUARE_ITER {
             let magic_number = self._find_magic_number(
                 square,
                 constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
@@ -1277,7 +1158,7 @@ impl Position {
     }
 
     fn initialize_slider_magic_attacks(&mut self, is_bishop: bool) {
-        for square in chess::SQUARE_ITER {
+        for square in SQUARE_ITER {
             self.magic_bishop_masks[usize::from(u8::from(square))] =
                 self.mask_bishop_attacks(square);
 
@@ -1327,7 +1208,7 @@ impl Position {
         }
     }
 
-    pub fn get_bishop_magic_attacks(&self, square: chess::Square, occupancy: u64) -> u64 {
+    pub fn get_bishop_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
         let mut mutable_occupancy = occupancy;
         mutable_occupancy &= self.magic_bishop_masks[usize::from(u8::from(square))];
         mutable_occupancy = mutable_occupancy
@@ -1337,7 +1218,7 @@ impl Position {
             [mutable_occupancy as usize];
     }
 
-    pub fn get_rook_magic_attacks(&self, square: chess::Square, occupancy: u64) -> u64 {
+    pub fn get_rook_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
         let mut mutable_occupancy = occupancy;
         mutable_occupancy &= self.magic_rook_masks[usize::from(u8::from(square))];
         mutable_occupancy = mutable_occupancy
@@ -1346,28 +1227,28 @@ impl Position {
         return self.magic_rook_attacks[usize::from(u8::from(square))][mutable_occupancy as usize];
     }
 
-    pub fn get_queen_magic_attacks(&self, square: chess::Square, occupancy: u64) -> u64 {
+    pub fn get_queen_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
         return self.get_bishop_magic_attacks(square, occupancy)
             | self.get_rook_magic_attacks(square, occupancy);
     }
 
-    pub fn get_occupancy(&self, color: chess::Color) -> u64 {
+    pub fn get_occupancy(&self, color: Color) -> u64 {
         let mut white_occupancy = 0u64;
         let mut black_occupancy = 0u64;
 
-        for piece in (chess::Piece::WhitePawn as u8)..=(chess::Piece::WhiteKing as u8) {
+        for piece in (Piece::WhitePawn as u8)..=(Piece::WhiteKing as u8) {
             white_occupancy |= self.bitboards[piece as usize];
         }
 
-        for piece in (chess::Piece::BlackPawn as u8)..=(chess::Piece::BlackKing as u8) {
+        for piece in (Piece::BlackPawn as u8)..=(Piece::BlackKing as u8) {
             black_occupancy |= self.bitboards[piece as usize];
         }
 
-        if color == chess::Color::White {
+        if color == Color::White {
             return white_occupancy;
         }
 
-        if color == chess::Color::Black {
+        if color == Color::Black {
             return black_occupancy;
         }
 
@@ -1378,11 +1259,11 @@ impl Position {
         let mut white_occupancy = 0u64;
         let mut black_occupancy = 0u64;
 
-        for piece in (chess::Piece::WhitePawn as u8)..=(chess::Piece::WhiteKing as u8) {
+        for piece in (Piece::WhitePawn as u8)..=(Piece::WhiteKing as u8) {
             white_occupancy |= self.bitboards[piece as usize];
         }
 
-        for piece in (chess::Piece::BlackPawn as u8)..=(chess::Piece::BlackKing as u8) {
+        for piece in (Piece::BlackPawn as u8)..=(Piece::BlackKing as u8) {
             black_occupancy |= self.bitboards[piece as usize];
         }
 
@@ -1394,7 +1275,7 @@ impl Position {
 mod tests {
     use crate::{
         board::{constants, Board, Position},
-        chess::{self, Piece},
+        chess::{piece::Piece, square::SQUARE_ITER},
     };
 
     #[test]
@@ -1435,7 +1316,7 @@ mod tests {
     fn generate_magic_numbers_correctly() {
         let mut board = Position::new(None);
 
-        for square in chess::SQUARE_ITER {
+        for square in SQUARE_ITER {
             let magic_number = board._find_magic_number(
                 square,
                 constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
@@ -1448,7 +1329,7 @@ mod tests {
             );
         }
 
-        for square in chess::SQUARE_ITER {
+        for square in SQUARE_ITER {
             let magic_number = board._find_magic_number(
                 square,
                 constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
@@ -1470,59 +1351,59 @@ mod tests {
 opening  -  82    337     365     477   1025   12000
 endgame  -  94    281     297     512   936    12000
 */
-pub fn _get_piece_value(piece: chess::Piece, square: usize, phase: u64) -> i32 {
-    if (piece as usize) < (chess::Piece::BlackPawn as usize) {
+pub fn _get_piece_value(piece: Piece, square: usize, phase: u64) -> i32 {
+    if (piece as usize) < (Piece::BlackPawn as usize) {
         match piece {
-            chess::Piece::WhitePawn => {
+            Piece::WhitePawn => {
                 return pst::PAWN_POSITIONAL_SCORE[square]
                     + (((82 * (256 - phase as i32)) + (94 * phase as i32)) / 256);
             }
-            chess::Piece::WhiteKnight => {
+            Piece::WhiteKnight => {
                 return pst::KNIGHT_POSITIONAL_SCORE[square]
                     + (((337 * (256 - phase as i32)) + (281 * phase as i32)) / 256);
             }
-            chess::Piece::WhiteBishop => {
+            Piece::WhiteBishop => {
                 return pst::BISHOP_POSITIONAL_SCORE[square]
                     + (((365 * (256 - phase as i32)) + (297 * phase as i32)) / 256);
             }
-            chess::Piece::WhiteRook => {
+            Piece::WhiteRook => {
                 return pst::ROOK_POSITIONAL_SCORE[square]
                     + (((477 * (256 - phase as i32)) + (512 * phase as i32)) / 256);
             }
-            chess::Piece::WhiteQueen => {
+            Piece::WhiteQueen => {
                 return pst::ROOK_POSITIONAL_SCORE[square]
                     + pst::BISHOP_POSITIONAL_SCORE[square]
                     + (((1025 * (256 - phase as i32)) + (936 * phase as i32)) / 256);
             }
-            chess::Piece::WhiteKing => {
+            Piece::WhiteKing => {
                 return pst::KING_POSITIONAL_SCORE[square] + 12000;
             }
             _ => return 0,
         };
     } else {
         match piece {
-            chess::Piece::BlackPawn => {
+            Piece::BlackPawn => {
                 return pst::PAWN_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
                     + (((82 * (256 - phase as i32)) + (94 * phase as i32)) / 256);
             }
-            chess::Piece::BlackKnight => {
+            Piece::BlackKnight => {
                 return pst::KNIGHT_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
                     + (((337 * (256 - phase as i32)) + (281 * phase as i32)) / 256);
             }
-            chess::Piece::BlackBishop => {
+            Piece::BlackBishop => {
                 return pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
                     + (((365 * (256 - phase as i32)) + (297 * phase as i32)) / 256);
             }
-            chess::Piece::BlackRook => {
+            Piece::BlackRook => {
                 return pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
                     + (((477 * (256 - phase as i32)) + (512 * phase as i32)) / 256);
             }
-            chess::Piece::BlackQueen => {
+            Piece::BlackQueen => {
                 return (pst::ROOK_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize]
                     + pst::BISHOP_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize])
                     + (((1025 * (256 - phase as i32)) + (936 * phase as i32)) / 256);
             }
-            chess::Piece::BlackKing => {
+            Piece::BlackKing => {
                 return pst::KING_POSITIONAL_SCORE[pst::MIRROR_SCORE[square] as usize] + 12000;
             }
             _ => return 0,
