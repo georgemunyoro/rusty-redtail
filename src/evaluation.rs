@@ -7,7 +7,7 @@ use crate::{
     board::{Board, Position},
     chess::{self, PrioritizedMove},
     movegen::MoveGenerator,
-    skaak,
+    skaak::{self, piece::Piece},
     tt::{self, TranspositionTable},
     utils,
 };
@@ -516,16 +516,16 @@ impl Evaluator {
 
     fn _has_non_pawn_material(&self, position: &mut Position) -> bool {
         if position.turn == chess::Color::White {
-            (position.bitboards[chess::Piece::WhiteBishop as usize]
-                + position.bitboards[chess::Piece::WhiteKnight as usize]
-                + position.bitboards[chess::Piece::WhiteRook as usize]
-                + position.bitboards[chess::Piece::WhiteQueen as usize])
+            (position.bitboards[Piece::WhiteBishop as usize]
+                + position.bitboards[Piece::WhiteKnight as usize]
+                + position.bitboards[Piece::WhiteRook as usize]
+                + position.bitboards[Piece::WhiteQueen as usize])
                 != 0
         } else {
-            (position.bitboards[chess::Piece::BlackBishop as usize]
-                + position.bitboards[chess::Piece::BlackKnight as usize]
-                + position.bitboards[chess::Piece::BlackRook as usize]
-                + position.bitboards[chess::Piece::BlackQueen as usize])
+            (position.bitboards[Piece::BlackBishop as usize]
+                + position.bitboards[Piece::BlackKnight as usize]
+                + position.bitboards[Piece::BlackRook as usize]
+                + position.bitboards[Piece::BlackQueen as usize])
                 != 0
         }
     }
@@ -594,18 +594,18 @@ impl Evaluator {
         let mut white_score = 0;
         let mut black_score = 0;
 
-        let mut white_pawns = position.bitboards[chess::Piece::WhitePawn as usize];
+        let mut white_pawns = position.bitboards[Piece::WhitePawn as usize];
         while white_pawns != 0 {
             let square = utils::pop_lsb(&mut white_pawns);
             let doubled_pawns = utils::count_bits(
-                position.bitboards[chess::Piece::WhitePawn as usize]
+                position.bitboards[Piece::WhitePawn as usize]
                     & position.file_masks[square as usize],
             );
             if doubled_pawns > 1 {
                 white_score += DOUBLED_PAWN_PENALTY as i32 * doubled_pawns as i32;
             }
 
-            if (position.bitboards[chess::Piece::WhitePawn as usize]
+            if (position.bitboards[Piece::WhitePawn as usize]
                 & position.isolated_pawn_masks[square as usize])
                 == 0
             {
@@ -613,25 +613,25 @@ impl Evaluator {
             }
 
             if (position.white_passed_pawn_masks[square as usize]
-                & position.bitboards[chess::Piece::BlackPawn as usize])
+                & position.bitboards[Piece::BlackPawn as usize])
                 == 0
             {
                 white_score += PASSED_PAWN_BONUS[GET_RANK[square as usize] as usize] as i32
             }
         }
 
-        let mut black_pawns = position.bitboards[chess::Piece::BlackPawn as usize];
+        let mut black_pawns = position.bitboards[Piece::BlackPawn as usize];
         while black_pawns != 0 {
             let square = utils::pop_lsb(&mut black_pawns);
             let doubled_pawns = utils::count_bits(
-                position.bitboards[chess::Piece::BlackPawn as usize]
+                position.bitboards[Piece::BlackPawn as usize]
                     & position.file_masks[square as usize],
             );
             if doubled_pawns > 1 {
                 black_score += DOUBLED_PAWN_PENALTY as i32 * doubled_pawns as i32;
             }
 
-            if (position.bitboards[chess::Piece::BlackPawn as usize]
+            if (position.bitboards[Piece::BlackPawn as usize]
                 & position.isolated_pawn_masks[square as usize])
                 == 0
             {
@@ -639,7 +639,7 @@ impl Evaluator {
             }
 
             if (position.black_passed_pawn_masks[square as usize]
-                & position.bitboards[chess::Piece::WhitePawn as usize])
+                & position.bitboards[Piece::WhitePawn as usize])
                 == 0
             {
                 black_score += PASSED_PAWN_BONUS[7 - GET_RANK[square as usize] as usize] as i32
