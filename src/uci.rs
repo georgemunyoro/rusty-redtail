@@ -5,9 +5,9 @@ use std::{
 
 use crate::{
     board::{self, Board, Position},
-    search::evaluate::*,
-    movegen::MoveGenerator,
     chess,
+    movegen::MoveGenerator,
+    search::evaluate::*,
     tt::{self},
 };
 
@@ -58,7 +58,7 @@ impl UCI {
             let mut position = board::Position::new(None);
             position.set_fen(String::from(chess::constants::STARTING_FEN));
 
-            let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new(1024)));
+            let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new(4096)));
 
             let running = Arc::new(Mutex::new(true));
             let mut eval_handles = vec![];
@@ -80,7 +80,7 @@ impl UCI {
                             Some(options) => {
                                 let position_fen = position.as_fen().to_string();
 
-                                for thread_id in 0..1 {
+                                for thread_id in 0..4 {
                                     let position_fen_clone = String::from(position_fen.clone());
                                     let is_evaluating_clone = Arc::clone(&is_evaluating);
                                     let transpos_table_clone = Arc::clone(&transpos_table);
