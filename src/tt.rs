@@ -19,7 +19,7 @@ pub struct TranspositionTable {
     size: u64,
 
     /// The age of the table. This is used to determine which entries to replace.
-    pub age: u8,
+    age: u8,
 
     /// The size of the table.
     pub hash_size: usize,
@@ -35,6 +35,10 @@ impl TranspositionTable {
             age: 0,
             hash_size,
         };
+    }
+
+    pub fn increment_age(&mut self) {
+        self.age += 1;
     }
 
     /// Stores a new entry in the transposition table. If the entry already exists, it is overwritten.

@@ -123,7 +123,7 @@ impl Evaluator {
 
         let mut pv_line_completed_so_far = Vec::new();
 
-        self.tt.lock().unwrap().age += 1;
+        self.tt.lock().unwrap().increment_age();
 
         loop {
             if current_depth > depth {
@@ -152,10 +152,15 @@ impl Evaluator {
                 break;
             }
 
-            if thread_id == 0 {
-                self.print_info(position, start_time);
-            }
+            // if thread_id == 0 {
+            print!("THREAD {} {} :", thread_id, self.is_running());
+            self.print_info(position, start_time);
+            // }
             current_depth += 1;
+        }
+
+        if thread_id != 0 {
+            return None;
         }
 
         let mut b = chess::_move::BitPackedMove::default();
