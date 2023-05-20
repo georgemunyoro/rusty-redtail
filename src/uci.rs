@@ -1,6 +1,6 @@
 use std::{
     io,
-    sync::{mpsc::TryRecvError, Arc, Mutex},
+    sync::{Arc, Mutex},
 };
 
 use crate::{
@@ -11,30 +11,8 @@ use crate::{
     tt::{self},
 };
 
-struct SearchThreadMessage {
-    command: SearchThreadCommand,
-
-    /// We send the position as an FEN string, so we don't have to worry about
-    /// cloning it and sending it across threads.
-    position: Option<String>,
-    options: Option<SearchOptions>,
-}
-
-impl SearchThreadMessage {
-    fn new(command: SearchThreadCommand) -> SearchThreadMessage {
-        SearchThreadMessage {
-            command,
-            position: None,
-            options: None,
-        }
-    }
-}
-
-enum SearchThreadCommand {
-    Quit,
-    Stop,
-    SetPosition,
-    Go,
+struct UCIOptions {
+    debug: bool,
 }
 
 pub struct UCI {
@@ -52,85 +30,12 @@ impl UCI {
     }
 
     pub fn uci_loop(&mut self) {
-        let (tx, rx) = std::sync::mpsc::channel::<SearchThreadMessage>();
-
-        let search_thread = std::thread::spawn(move || {
-            let mut position = board::Position::new(None);
-            position.set_fen(String::from(chess::constants::STARTING_FEN));
-
-            let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new(4096)));
-
-            let running = Arc::new(Mutex::new(true));
-            let mut eval_handles = vec![];
-
-            loop {
-                let is_evaluating = Arc::clone(&running);
-                let transpos_table = Arc::clone(&transposition_table);
-
-                match rx.try_recv() {
-                    Ok(s) => match s.command {
-                        SearchThreadCommand::Quit => {
-                            break;
-                        }
-                        SearchThreadCommand::SetPosition => match s.position {
-                            Some(fen) => position.set_fen(fen),
-                            None => {}
-                        },
-                        SearchThreadCommand::Go => match s.options {
-                            Some(options) => {
-                                let position_fen = position.as_fen().to_string();
-
-                                for thread_id in 0..4 {
-                                    let position_fen_clone = String::from(position_fen.clone());
-                                    let is_evaluating_clone = Arc::clone(&is_evaluating);
-                                    let transpos_table_clone = Arc::clone(&transpos_table);
-
-                                    let curr_thread_handle = std::thread::spawn(move || {
-                                        let mut eval_position = board::Position::new(None);
-                                        eval_position.set_fen(String::from(position_fen_clone));
-
-                                        let mut evaluator = Evaluator::new();
-                                        let bestmove = evaluator.get_best_move(
-                                            &mut eval_position,
-                                            options,
-                                            is_evaluating_clone,
-                                            transpos_table_clone,
-                                            thread_id,
-                                            thread_id as u8 + 1,
-                                        );
-
-                                        return bestmove;
-                                    });
-
-                                    eval_handles.push(curr_thread_handle);
-                                }
-                            }
-                            None => {}
-                        },
-                        SearchThreadCommand::Stop => {
-                            {
-                                let mut r = running.lock().unwrap();
-                                *r = false;
-                            }
-
-                            while eval_handles.len() > 0 {
-                                let cur_thread = eval_handles.pop();
-                                cur_thread.unwrap().join().unwrap();
-                            }
-                        }
-                    },
-                    Err(TryRecvError::Empty) => {}
-                    Err(TryRecvError::Disconnected) => {
-                        println!("Disconnected");
-                        break;
-                    }
-                }
-            }
-            sleep(100);
-        });
-
         let mut position = board::Position::new(None);
         position.set_fen(String::from(chess::constants::STARTING_FEN));
+        let mut search_threads: Vec<std::thread::JoinHandle<()>> = vec![];
+        let shared_transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new(2048)));
+        let is_searching = Arc::new(Mutex::new(false));
+        let mut uci_options = UCIOptions { debug: false };
 
         loop {
             let mut buffer = String::new();
@@ -141,30 +46,33 @@ impl UCI {
                 continue;
             };
 
+            let shared_transposition_table = Arc::clone(&shared_transposition_table);
+            let is_searching = Arc::clone(&is_searching);
+
             match tokens[0] {
-                "perft" => {
-                    if tokens.len() < 2 {
-                        return;
-                    }
-                    let depth = tokens[1].parse::<u8>().unwrap();
-                    let nodes = position.perft(depth);
-                    println!("nodes: {}", nodes);
-                }
+                /*
+                   UCI commands
+                */
+                // Print the engine info. No need to switch to uci mode
+                // as the engine is always in uci mode.
                 "uci" => {
                     println!("id name redtail_vx");
                     println!("id author George T.G. Munyoro");
                     println!("uciok");
                 }
-                "quit" => {
-                    tx.send(SearchThreadMessage::new(SearchThreadCommand::Quit))
-                        .unwrap();
-                    break;
-                }
-                "ucinewgame" => {
-                    self.position
-                        .set_fen(String::from(chess::constants::STARTING_FEN));
-                }
+
+                // Check if the engine is ready
                 "isready" => println!("readyok"),
+
+                // Set debug mode
+                "debug" => uci_options.debug = true,
+
+                // Set the position to the starting position
+                "ucinewgame" => self
+                    .position
+                    .set_fen(String::from(chess::constants::STARTING_FEN)),
+
+                // Set the position
                 "position" => {
                     if tokens.len() < 2 {
                         return;
@@ -173,37 +81,29 @@ impl UCI {
                     if tokens[1] == "startpos" {
                         position.set_fen(String::from(chess::constants::STARTING_FEN));
 
+                        // Handle moves
                         if tokens.len() > 2 && tokens[2] == "moves" {
                             parse_and_make_moves(&mut position, tokens[3..].to_vec());
                         }
                     }
 
-                    if tokens[1] == "fen" {
-                        if tokens.len() < 8 {
-                            return;
-                        }
-
+                    if tokens[1] == "fen" && tokens.len() >= 8 {
                         let mut fen = String::new();
                         for i in 2..8 {
                             fen.push_str(tokens[i]);
                             fen.push_str(" ");
                         }
                         fen.pop();
-
                         position.set_fen(String::from(fen));
 
+                        // Handle moves
                         if tokens.len() > 8 && tokens[8] == "moves" {
                             parse_and_make_moves(&mut position, tokens[9..].to_vec());
                         }
                     }
-
-                    tx.send(SearchThreadMessage {
-                        command: SearchThreadCommand::SetPosition,
-                        position: Some(position.as_fen()),
-                        options: None,
-                    })
-                    .unwrap();
                 }
+
+                // Start the search
                 "go" => {
                     let mut options = SearchOptions::new();
                     for i in 1..tokens.len() {
@@ -224,24 +124,87 @@ impl UCI {
                         }
                     }
 
-                    tx.send(SearchThreadMessage {
-                        command: SearchThreadCommand::Go,
-                        position: Some(position.as_fen()),
-                        options: Some(options),
-                    })
-                    .unwrap();
+                    let tt = Arc::clone(&shared_transposition_table);
+                    search_threads.push(self.create_search_thread(
+                        self.position.as_fen(),
+                        options,
+                        is_searching,
+                        tt,
+                        0,
+                    ));
                 }
+
+                // Stop the search and print the best move
                 "stop" => {
-                    tx.send(SearchThreadMessage::new(SearchThreadCommand::Stop))
-                        .unwrap();
+                    {
+                        let mut r = is_searching.lock().unwrap();
+                        *r = false;
+                    }
+
+                    while search_threads.len() > 0 {
+                        let cur_thread = search_threads.pop();
+                        cur_thread.unwrap().join().unwrap();
+                    }
                 }
+
+                // Quit the engine
+                "quit" => {
+                    break;
+                }
+
+                /*
+                   Custom commands
+                */
+                // Print out perft information for given depth at the current position
+                "perft" => {
+                    if tokens.len() < 2 {
+                        return;
+                    }
+                    let start_time = std::time::Instant::now();
+                    let depth = tokens[1].parse::<u8>().unwrap();
+                    let nodes = position.perft(depth);
+                    let end_time = std::time::Instant::now();
+                    let elapsed = end_time.duration_since(start_time);
+                    let nps = nodes as f64 / (elapsed.as_millis() as f64 / 1000.0);
+                    println!("nodes {} nps {}", nodes, nps);
+                }
+
+                // Print out an ASCII drawing of the board
+                "draw" => position.draw(),
+
                 _ => {
                     println!("Unknown command: {}", buffer.trim());
                 }
             }
         }
+    }
 
-        search_thread.join().unwrap();
+    fn create_search_thread(
+        &self,
+        position_fen: String,
+        search_options: SearchOptions,
+        is_searching: Arc<Mutex<bool>>,
+        transposition_table: Arc<Mutex<tt::TranspositionTable>>,
+        thread_id: usize,
+    ) -> std::thread::JoinHandle<()> {
+        let position_fen_clone = String::from(position_fen.clone());
+        let is_searching = Arc::clone(&is_searching);
+        let transpos_table_clone = Arc::clone(&transposition_table);
+
+        return std::thread::spawn(move || {
+            let mut eval_position = board::Position::new(None);
+            eval_position.set_fen(String::from(position_fen_clone));
+
+            let mut evaluator = Evaluator::new();
+            evaluator.get_best_move(
+                &mut eval_position,
+                search_options,
+                is_searching,
+                transpos_table_clone,
+                thread_id,
+                1 + thread_id as u8,
+            );
+        });
     }
 }
 
@@ -270,8 +233,4 @@ pub fn parse_move(
     }
 
     return None;
-}
-
-fn sleep(ms: u64) {
-    std::thread::sleep(std::time::Duration::from_millis(ms));
 }

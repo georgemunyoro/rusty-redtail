@@ -94,7 +94,7 @@ impl MoveGenerator for Position {
                 // pawn promotion
                 if source >= Square::A2 && source <= Square::H2 {
                     moves.extend(
-                        vec![
+                        [
                             Piece::BlackQueen,
                             Piece::BlackRook,
                             Piece::BlackBishop,
@@ -138,7 +138,7 @@ impl MoveGenerator for Position {
 
                 if source >= Square::A2 && source <= Square::H2 {
                     moves.extend(
-                        vec![
+                        [
                             Piece::BlackQueen,
                             Piece::BlackRook,
                             Piece::BlackBishop,
@@ -196,7 +196,7 @@ impl MoveGenerator for Position {
                 // pawn promotion
                 if source >= Square::A7 && source <= Square::H7 {
                     moves.extend(
-                        vec![
+                        [
                             Piece::WhiteQueen,
                             Piece::WhiteRook,
                             Piece::WhiteBishop,
@@ -240,7 +240,7 @@ impl MoveGenerator for Position {
 
                 if source >= Square::A7 && source <= Square::H7 {
                     moves.extend(
-                        vec![
+                        [
                             Piece::WhiteQueen,
                             Piece::WhiteRook,
                             Piece::WhiteBishop,
