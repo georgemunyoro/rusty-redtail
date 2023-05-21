@@ -8,6 +8,7 @@ use crate::{
     chess::{self, _move::PrioritizedMove, color::Color, piece::Piece},
     movegen::MoveGenerator,
     search::constants::*,
+    search::options::*,
     tt::{self, TranspositionTable},
     utils,
 };
@@ -19,34 +20,6 @@ pub struct PositionEvaluation {
     pub depth: u8,
     pub ply: u32,
     pub nodes: i32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct SearchOptions {
-    pub depth: Option<u8>,
-    pub movetime: Option<u32>,
-    pub infinite: bool,
-    pub wtime: Option<u32>,
-    pub btime: Option<u32>,
-    pub winc: Option<u32>,
-    pub binc: Option<u32>,
-    pub movestogo: Option<u32>,
-}
-
-impl SearchOptions {
-    pub fn new() -> SearchOptions {
-        return SearchOptions {
-            depth: None,
-            // movetime: Some(3000),
-            movetime: None,
-            infinite: false,
-            wtime: None,
-            btime: None,
-            winc: None,
-            binc: None,
-            movestogo: None,
-        };
-    }
 }
 
 pub struct Evaluator {
@@ -123,7 +96,7 @@ impl Evaluator {
 
         let mut pv_line_completed_so_far = Vec::new();
 
-        self.tt.lock().unwrap().age += 1;
+        self.tt.lock().unwrap().increment_age();
 
         loop {
             if current_depth > depth {
@@ -156,6 +129,10 @@ impl Evaluator {
                 self.print_info(position, start_time);
             }
             current_depth += 1;
+        }
+
+        if thread_id != 0 {
+            return None;
         }
 
         let mut b = chess::_move::BitPackedMove::default();
@@ -222,19 +199,19 @@ impl Evaluator {
 
         self.result.nodes += 1;
 
-        if let Some(tt_value) =
-            self.tt
-                .lock()
-                .unwrap()
-                .probe_entry(position.hash, depth, alpha, beta)
-        {
-            if tt_value.1 == tt::TranspositionTableEntryFlag::EXACT {
-                if self.result.ply == 0 {
-                    self.result.depth = depth;
-                    self.result.score = tt_value.0;
-                }
+        let tt_entry = self
+            .tt
+            .lock()
+            .unwrap()
+            .probe_entry(position.hash, depth, alpha, beta);
+
+        if tt_entry.is_valid() {
+            if tt_entry.get_flag() == tt::TranspositionTableEntryFlag::EXACT && self.result.ply == 0
+            {
+                self.result.depth = depth;
+                self.result.score = tt_entry.get_value();
             }
-            return tt_value.0;
+            return tt_entry.get_value();
         }
 
         if depth == 0 {
@@ -614,6 +591,50 @@ impl Evaluator {
                 == 0
             {
                 black_score += PASSED_PAWN_BONUS[7 - GET_RANK[square as usize] as usize] as i32
+            }
+        }
+
+        let mut white_rooks = position.bitboards[Piece::WhiteRook as usize];
+        while white_rooks != 0 {
+            let square = utils::pop_lsb(&mut white_rooks);
+
+            // Semi open files
+            if ((position.bitboards[Piece::WhitePawn as usize])
+                & position.file_masks[square as usize])
+                == 0
+            {
+                white_score += SEMI_OPEN_FILE_SCORE;
+            }
+
+            // Open files
+            if ((position.bitboards[Piece::WhitePawn as usize]
+                | position.bitboards[Piece::BlackPawn as usize])
+                & position.file_masks[square as usize])
+                == 0
+            {
+                white_score += OPEN_FILE_SCORE;
+            }
+        }
+
+        let mut black_rooks = position.bitboards[Piece::BlackRook as usize];
+        while black_rooks != 0 {
+            let square = utils::pop_lsb(&mut black_rooks);
+
+            // Semi open files
+            if ((position.bitboards[Piece::BlackPawn as usize])
+                & position.file_masks[square as usize])
+                == 0
+            {
+                black_score += SEMI_OPEN_FILE_SCORE;
+            }
+
+            // Open files
+            if ((position.bitboards[Piece::WhitePawn as usize]
+                | position.bitboards[Piece::BlackPawn as usize])
+                & position.file_masks[square as usize])
+                == 0
+            {
+                black_score += OPEN_FILE_SCORE;
             }
         }
 

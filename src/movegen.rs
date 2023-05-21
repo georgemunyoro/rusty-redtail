@@ -7,24 +7,20 @@ use crate::{
 };
 
 pub trait MoveGenerator {
-    fn generate_moves(&self) -> Vec<chess::_move::BitPackedMove>;
     fn generate_legal_moves(&mut self) -> Vec<chess::_move::BitPackedMove>;
+    fn generate_moves(&self) -> Vec<chess::_move::BitPackedMove>;
 
     fn generate_knight_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
     fn generate_bishop_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
     fn generate_rook_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
     fn generate_queen_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
-
     fn generate_king_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
     fn generate_castle_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
-
     fn generate_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
     fn generate_white_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
     fn generate_black_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
 
     fn perft(&mut self, depth: u8) -> u64;
-    fn perft_divide(&mut self, depth: u8) -> u64;
-    fn detailed_perft(&mut self, depth: u8, print: bool) -> PerftResult;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -94,7 +90,7 @@ impl MoveGenerator for Position {
                 // pawn promotion
                 if source >= Square::A2 && source <= Square::H2 {
                     moves.extend(
-                        vec![
+                        [
                             Piece::BlackQueen,
                             Piece::BlackRook,
                             Piece::BlackBishop,
@@ -138,7 +134,7 @@ impl MoveGenerator for Position {
 
                 if source >= Square::A2 && source <= Square::H2 {
                     moves.extend(
-                        vec![
+                        [
                             Piece::BlackQueen,
                             Piece::BlackRook,
                             Piece::BlackBishop,
@@ -196,7 +192,7 @@ impl MoveGenerator for Position {
                 // pawn promotion
                 if source >= Square::A7 && source <= Square::H7 {
                     moves.extend(
-                        vec![
+                        [
                             Piece::WhiteQueen,
                             Piece::WhiteRook,
                             Piece::WhiteBishop,
@@ -240,7 +236,7 @@ impl MoveGenerator for Position {
 
                 if source >= Square::A7 && source <= Square::H7 {
                     moves.extend(
-                        vec![
+                        [
                             Piece::WhiteQueen,
                             Piece::WhiteRook,
                             Piece::WhiteBishop,
@@ -535,9 +531,8 @@ impl MoveGenerator for Position {
         let mut moves = Vec::with_capacity(256);
 
         for m in self.generate_moves() {
-            let is_valid = self.make_move(m, false);
-
-            if is_valid {
+            let is_legal_move = self.make_move(m, false);
+            if is_legal_move {
                 moves.push(m);
                 self.unmake_move();
             }
@@ -550,91 +545,21 @@ impl MoveGenerator for Position {
         if depth == 0 {
             return 1;
         }
+
         let mut nodes = 0;
         let moves = self.generate_moves();
 
         for m in moves {
-            let is_valid_move = self.make_move(m, false);
-            if !is_valid_move {
+            let is_legal_move = self.make_move(m, false);
+            if !is_legal_move {
                 continue;
             }
+
             nodes += self.perft(depth - 1);
             self.unmake_move();
         }
 
         return nodes;
-    }
-
-    fn perft_divide(&mut self, depth: u8) -> u64 {
-        if depth == 0 {
-            return 1;
-        }
-
-        let mut nodes = 0;
-        let moves = self.generate_moves();
-
-        for m in moves {
-            let is_valid_move = self.make_move(m, false);
-            if !is_valid_move {
-                continue;
-            }
-            let child_nodes = self.perft(depth - 1);
-            nodes += child_nodes;
-            println!("{}: {}", m, child_nodes);
-            self.unmake_move();
-        }
-
-        return nodes;
-    }
-
-    fn detailed_perft(&mut self, depth: u8, print: bool) -> PerftResult {
-        if depth == 0 {
-            return PerftResult {
-                depth,
-                nodes: 1,
-                captures: 0,
-                en_passant: 0,
-                castles: 0,
-                promotions: 0,
-                checks: 0,
-                discovery_checks: 0,
-                double_checks: 0,
-                checkmates: 0,
-            };
-        }
-
-        let mut result = PerftResult {
-            depth,
-            nodes: 0,
-            captures: 0,
-            en_passant: 0,
-            castles: 0,
-            promotions: 0,
-            checks: 0,
-            discovery_checks: 0,
-            double_checks: 0,
-            checkmates: 0,
-        };
-
-        let moves = self.generate_moves();
-
-        for m in moves {
-            let is_valid_move = self.make_move(m, false);
-            if !is_valid_move {
-                continue;
-            }
-
-            let child_result = self.detailed_perft(depth - 1, false);
-
-            result = result + child_result.clone();
-
-            if print {
-                println!("{}: {} - {}", m, child_result.nodes, self.as_fen());
-            }
-            self.unmake_move();
-        }
-
-        return result;
     }
 }
 
