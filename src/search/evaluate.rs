@@ -125,10 +125,9 @@ impl Evaluator {
                 break;
             }
 
-            // if thread_id == 0 {
-            print!("THREAD {} {} :", thread_id, self.is_running());
-            self.print_info(position, start_time);
-            // }
+            if thread_id == 0 {
+                self.print_info(position, start_time);
+            }
             current_depth += 1;
         }
 
