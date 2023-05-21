@@ -8,6 +8,7 @@ use crate::{
     chess::{self, _move::PrioritizedMove, color::Color, piece::Piece},
     movegen::MoveGenerator,
     search::constants::*,
+    search::options::*,
     tt::{self, TranspositionTable},
     utils,
 };
@@ -19,34 +20,6 @@ pub struct PositionEvaluation {
     pub depth: u8,
     pub ply: u32,
     pub nodes: i32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct SearchOptions {
-    pub depth: Option<u8>,
-    pub movetime: Option<u32>,
-    pub infinite: bool,
-    pub wtime: Option<u32>,
-    pub btime: Option<u32>,
-    pub winc: Option<u32>,
-    pub binc: Option<u32>,
-    pub movestogo: Option<u32>,
-}
-
-impl SearchOptions {
-    pub fn new() -> SearchOptions {
-        return SearchOptions {
-            depth: None,
-            // movetime: Some(3000),
-            movetime: None,
-            infinite: false,
-            wtime: None,
-            btime: None,
-            winc: None,
-            binc: None,
-            movestogo: None,
-        };
-    }
 }
 
 pub struct Evaluator {
