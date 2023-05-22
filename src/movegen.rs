@@ -444,8 +444,6 @@ impl MoveGenerator for Position {
                 moves.push(m);
             }
         }
-
-        self.generate_castle_moves(moves);
     }
 
     fn generate_castle_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
@@ -517,12 +515,13 @@ impl MoveGenerator for Position {
     fn generate_moves(&self) -> Vec<chess::_move::BitPackedMove> {
         let mut moves = Vec::with_capacity(256);
 
-        self.generate_pawn_moves(&mut moves);
+        self.generate_castle_moves(&mut moves);
         self.generate_knight_moves(&mut moves);
         self.generate_bishop_moves(&mut moves);
         self.generate_rook_moves(&mut moves);
         self.generate_queen_moves(&mut moves);
         self.generate_king_moves(&mut moves);
+        self.generate_pawn_moves(&mut moves);
 
         return moves;
     }

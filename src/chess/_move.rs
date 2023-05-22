@@ -171,9 +171,23 @@ impl std::fmt::Display for BitPackedMove {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct PrioritizedMove {
     pub priority: u32,
     pub m: BitPackedMove,
+}
+
+impl PrioritizedMove {
+    pub fn new(m: BitPackedMove, priority: u32) -> Self {
+        Self { priority, m }
+    }
+
+    pub fn default() -> Self {
+        Self {
+            priority: 0,
+            m: BitPackedMove::default(),
+        }
+    }
 }
 
 impl PartialEq for PrioritizedMove {

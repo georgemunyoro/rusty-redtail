@@ -5,12 +5,17 @@ use std::{
 
 use crate::{
     board::{Board, Position},
-    chess::{self, _move::PrioritizedMove, color::Color, piece::Piece},
+    chess::{
+        self,
+        _move::{BitPackedMove, PrioritizedMove},
+        color::Color,
+        piece::Piece,
+    },
     movegen::MoveGenerator,
     search::constants::*,
     search::options::*,
     tt::{self, TranspositionTable},
-    utils,
+    utils, Cutoffs,
 };
 
 #[derive(Debug)]
@@ -20,6 +25,7 @@ pub struct PositionEvaluation {
     pub depth: u8,
     pub ply: u32,
     pub nodes: i32,
+    pub cutoffs: Cutoffs,
 }
 
 pub struct Evaluator {
@@ -31,6 +37,7 @@ pub struct Evaluator {
     pub options: SearchOptions,
     pub tt: Arc<Mutex<TranspositionTable>>,
     pub repetition_table: Vec<u64>,
+    counter_move_table: [[BitPackedMove; 64]; 64],
 }
 
 impl Evaluator {
@@ -53,6 +60,7 @@ impl Evaluator {
                 depth: 0,
                 ply: 0,
                 nodes: 0,
+                cutoffs: Cutoffs::new(),
             },
             killer_moves: [[chess::_move::BitPackedMove::default(); MAX_PLY]; 2],
             history_moves: [[0; MAX_PLY]; 12],
@@ -60,6 +68,7 @@ impl Evaluator {
             options: SearchOptions::new(),
             tt: Arc::new(Mutex::new(TranspositionTable::new(1024))),
             repetition_table: Vec::with_capacity(150),
+            counter_move_table: [[BitPackedMove::default(); 64]; 64],
         };
     }
 
@@ -78,6 +87,7 @@ impl Evaluator {
             depth: 0,
             ply: 0,
             nodes: 0,
+            cutoffs: Cutoffs::new(),
         };
 
         let depth = match options.depth {
@@ -105,7 +115,7 @@ impl Evaluator {
 
             let start_time = Evaluator::_get_time_ms();
 
-            let score = self.negamax(position, alpha, beta, current_depth, false);
+            let score = self.negamax(position, alpha, beta, current_depth, false, None);
 
             if score <= alpha || score >= beta {
                 alpha = -50000;
@@ -154,6 +164,7 @@ impl Evaluator {
         beta: i32,
         _depth: u8,
         was_last_move_null: bool,
+        last_move: Option<BitPackedMove>,
     ) -> i32 {
         let mut alpha = _alpha;
         let mut depth = _depth; // will be mutable later for search extensions
@@ -169,7 +180,7 @@ impl Evaluator {
             position.make_null_move();
             self.result.ply += 1;
 
-            let null_move_score = -self.negamax(position, -beta, -beta + 1, depth - 3, true);
+            let null_move_score = -self.negamax(position, -beta, -beta + 1, depth - 3, true, None);
 
             position.unmake_move();
             self.result.ply -= 1;
@@ -219,7 +230,7 @@ impl Evaluator {
         }
 
         let mut legal_moves_searched = 0;
-        let mut queue = self.order_moves_p(position.generate_moves(), position);
+        let mut queue = self.order_moves_p(position.generate_moves(), position, last_move);
         let mut found_pv = false;
         let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
 
@@ -236,16 +247,16 @@ impl Evaluator {
 
             // If we have found a pv move, then we need to search it with a null window
             if found_pv {
-                _score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false);
+                _score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false, None);
 
                 // If our pv move fails, then we need to search again with a full window
                 if (_score > alpha) && (_score < beta) {
-                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false);
+                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None);
                 }
             } else {
                 if legal_moves_searched == 0 {
                     // If we have not found a pv move, and this is the first move, then we need to search with a full window
-                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false);
+                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None);
                 } else {
                     if legal_moves_searched >= _FULL_DEPTH_MOVES
                         && depth >= _REDUCTION_LIMIT
@@ -253,18 +264,20 @@ impl Evaluator {
                         && !pm.m.is_promotion()
                         && !pm.m.is_capture()
                     {
-                        _score = -self.negamax(position, -alpha - 1, -alpha, depth - 2, false);
+                        _score =
+                            -self.negamax(position, -alpha - 1, -alpha, depth - 2, false, None);
                     } else {
                         _score = alpha + 1;
                     }
 
                     // If we found a better move during LMR
                     if _score > alpha {
-                        _score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false);
+                        _score =
+                            -self.negamax(position, -alpha - 1, -alpha, depth - 1, false, None);
 
                         // if our LMR move fails, then we need to search again with a full window
                         if (_score > alpha) && (_score < beta) {
-                            _score = -self.negamax(position, -beta, -alpha, depth - 1, false);
+                            _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None);
                         }
                     }
                 }
@@ -295,6 +308,24 @@ impl Evaluator {
                     self.killer_moves[0][self.result.ply as usize] = pm.m;
                 }
 
+                self.counter_move_table[pm.m.get_from() as usize][pm.m.get_to() as usize] = pm.m;
+
+                // ==============
+                // cutof testing
+                // ==============
+
+                if legal_moves_searched == 1 {
+                    self.result.cutoffs.move_1 += 1;
+                }
+                if legal_moves_searched == 2 {
+                    self.result.cutoffs.move_2 += 1;
+                }
+                self.result.cutoffs.avg_cutoff_move_no += legal_moves_searched as f32;
+                self.result.cutoffs.total += 1;
+
+                // ==============
+                // ==============
+
                 return beta;
             }
 
@@ -311,7 +342,7 @@ impl Evaluator {
                 }
 
                 self.history_moves[pm.m.get_piece() as usize][self.result.ply as usize] +=
-                    depth as u32;
+                    (depth * depth) as u32;
             }
         }
 
@@ -348,7 +379,7 @@ impl Evaluator {
             alpha = stand_pat
         }
 
-        let mut queue = self.order_moves_p(position.generate_moves(), position);
+        let mut queue = self.order_moves_p(position.generate_moves(), position, None);
         while let Some(pm) = queue.pop() {
             if !pm.m.is_capture() {
                 continue;
@@ -422,6 +453,16 @@ impl Evaluator {
             }
 
             println!(" info pv{}", pv_str);
+
+            // println!("\n===========================");
+            // println!("Total recorded cutoffs: {}", self.result.cutoffs.total);
+            // println!("Cutoffs with 1st move: {}", self.result.cutoffs.move_1);
+            // println!("Cutoffs with 2st move: {}", self.result.cutoffs.move_2);
+            // println!(
+            //     "Avg. move no that causes cut off: {}",
+            //     self.result.cutoffs.avg_cutoff_move_no as f32 / self.result.cutoffs.total as f32
+            // );
+            // println!("===========================\n");
         }
     }
 
@@ -491,13 +532,21 @@ impl Evaluator {
         &mut self,
         m: chess::_move::BitPackedMove,
         is_following_pv_line: bool,
+        last_move: Option<BitPackedMove>,
     ) -> u32 {
+        if let Some(m) = last_move {
+            let counter_move = self.counter_move_table[m.get_from() as usize][m.get_to() as usize];
+            if counter_move != BitPackedMove::default() {
+                return 30000;
+            }
+        }
+
         if is_following_pv_line {
             return 20000;
         }
 
         let value: u32 = if m.is_capture() {
-            _MVV_LVA[m.get_piece() as usize][m.get_capture() as usize]
+            _MVV_LVA[m.get_piece() as usize][m.get_capture() as usize] + 1000
         } else {
             if self.killer_moves[0][self.result.ply as usize] == m {
                 return 9000;
@@ -517,18 +566,21 @@ impl Evaluator {
         &mut self,
         moves: Vec<chess::_move::BitPackedMove>,
         position: &mut Position,
+        last_move: Option<BitPackedMove>,
     ) -> BinaryHeap<PrioritizedMove> {
         let mut queue: BinaryHeap<PrioritizedMove> = BinaryHeap::with_capacity(moves.len());
 
         let mut tt_move: chess::_move::BitPackedMove = chess::_move::BitPackedMove::default();
         if let Some(tt_entry) = self.tt.lock().unwrap().get(position.hash) {
-            if tt_entry.get_move() != chess::_move::BitPackedMove::default() {
+            if tt_entry.get_move() != chess::_move::BitPackedMove::default()
+                && tt_entry.get_flag() == tt::TranspositionTableEntryFlag::EXACT
+            {
                 tt_move = tt_entry.get_move();
             }
         }
 
         for m in moves {
-            let priority: u32 = self.get_move_priority(m, m == tt_move);
+            let priority: u32 = self.get_move_priority(m, m == tt_move, last_move);
             queue.push(PrioritizedMove { m, priority })
         }
 
