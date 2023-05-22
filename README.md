@@ -2,6 +2,8 @@
 
 Redtail is a chess engine written in Rust. The engine employs various algorithms and strategies to make intelligent moves and offer a challenging opponent for chess enthusiasts. It may not be stockfish, but it's mine :)
 
+Challenge redtail to a game on [lichess](https://lichess.org/@/redtail-zero)!
+
 ## Getting Started
 
 To use redtail, follow these steps:
