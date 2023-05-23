@@ -63,6 +63,48 @@ impl Evaluator {
         };
     }
 
+    /// Determines the time to spend on a move based on the time left for the side to move
+    /// as well as the increment.
+    fn set_move_time(&mut self, position: &mut Position) {
+        if self.options.movetime.is_some() || self.options.infinite {
+            return;
+        }
+        let time_left_for_side = if position.turn == Color::White {
+            match self.options.wtime {
+                Some(wtime) => wtime,
+                None => 0,
+            }
+        } else {
+            match self.options.btime {
+                Some(btime) => btime,
+                None => 0,
+            }
+        };
+        let increment = if position.turn == Color::White {
+            match self.options.winc {
+                Some(winc) => winc,
+                None => 0,
+            }
+        } else {
+            match self.options.binc {
+                Some(binc) => binc,
+                None => 0,
+            }
+        };
+
+        let time_for_move = time_left_for_side / 45 + (increment / 2);
+
+        if time_for_move >= time_left_for_side {
+            self.options.movetime = Some(time_left_for_side - 500);
+        } else {
+            if time_for_move <= 0 {
+                self.options.movetime = Some(200);
+                return;
+            }
+            self.options.movetime = Some(time_for_move);
+        }
+    }
+
     pub fn get_best_move(
         &mut self,
         position: &mut Position,
@@ -86,6 +128,8 @@ impl Evaluator {
         };
 
         self.options = options;
+        self.set_move_time(position);
+
         self.running = running;
         self.tt = transposition_table;
         self.started_at = Evaluator::_get_time_ms();
@@ -435,24 +479,6 @@ impl Evaluator {
         match self.options.movetime {
             Some(movetime) => {
                 if (elapsed + 200) >= movetime as u128 {
-                    return false;
-                }
-            }
-            None => {}
-        }
-
-        match self.options.wtime {
-            Some(wtime) => {
-                if elapsed >= wtime as u128 {
-                    return false;
-                }
-            }
-            None => {}
-        }
-
-        match self.options.btime {
-            Some(btime) => {
-                if elapsed >= btime as u128 {
                     return false;
                 }
             }
