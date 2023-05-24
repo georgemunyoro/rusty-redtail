@@ -1,8 +1,11 @@
 use std::sync::{Arc, Mutex};
 
-use board::Board;
+use board::{Board, Position};
+use chess::{_move, piece::Piece, square::Square};
 use movegen::MoveGenerator;
 use uci::UCI;
+
+use crate::board::_get_piece_value;
 
 mod board;
 mod chess;
@@ -36,8 +39,28 @@ impl Cutoffs {
 }
 
 fn main() {
-    let mut u = UCI::new();
-    u.uci_loop();
+    // let mut u = UCI::new();
+    // u.uci_loop();
+
+    let mut pos = Position::new(Some(
+        "rnbqk2r/pp1Q1ppp/4pn2/2b5/8/4P3/PPP1BPPP/RNB1K1NR b KQkq - 0 5",
+    ));
+    pos.draw();
+
+    let moves = pos.generate_moves(true);
+
+    for m in moves {
+        println!("{}", m);
+        let og_hash = pos.hash;
+        pos.make_move(m, false);
+        pos.unmake_move();
+        pos.draw();
+        println!("{} {}", og_hash, pos.hash);
+        assert_eq!(og_hash, pos.hash);
+        println!("=====================");
+        // println!("{}", see_capture(&mut pos, m));
+        // println!("=====================");
+    }
 }
 
 fn _cutoff_testing() {

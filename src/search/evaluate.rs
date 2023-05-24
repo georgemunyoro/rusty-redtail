@@ -4,12 +4,13 @@ use std::{
 };
 
 use crate::{
-    board::{Board, Position},
+    board::{Board, Position, _get_piece_value},
     chess::{
         self,
         _move::{BitPackedMove, PrioritizedMove},
         color::Color,
         piece::Piece,
+        square::Square,
     },
     movegen::MoveGenerator,
     search::constants::*,
@@ -103,7 +104,7 @@ impl Evaluator {
 
         let time_for_move = time_left_for_side / 45 + (increment / 2);
 
-        if time_for_move >= time_left_for_side {
+        if time_for_move >= time_left_for_side && time_left_for_side > 500 {
             self.options.movetime = Some(time_left_for_side - 500);
         } else {
             if time_for_move <= 0 {
@@ -553,6 +554,7 @@ impl Evaluator {
     /// Returns a score for a move based on various heuristics.
     fn get_move_priority(
         &mut self,
+        position: &mut Position,
         m: chess::_move::BitPackedMove,
         is_following_pv_line: bool,
         last_move: Option<BitPackedMove>,
@@ -569,6 +571,12 @@ impl Evaluator {
         }
 
         if m.is_capture() {
+            let x = self.see_capture(position, m);
+            println!(
+                "SEE: {}, MVV-LVA {}",
+                x,
+                _MVV_LVA[m.get_piece() as usize][m.get_capture() as usize]
+            );
             return _MVV_LVA[m.get_piece() as usize][m.get_capture() as usize] + 1000;
         }
 
@@ -601,7 +609,7 @@ impl Evaluator {
         }
 
         for m in moves {
-            let priority: u32 = self.get_move_priority(m, m == tt_move, last_move);
+            let priority: u32 = self.get_move_priority(position, m, m == tt_move, last_move);
             queue.push(PrioritizedMove { m, priority })
         }
 
@@ -736,5 +744,76 @@ impl Evaluator {
         }
 
         return score;
+    }
+
+    fn get_least_valuable_attacker_move(
+        &self,
+        position: &mut Position,
+        square: Square,
+    ) -> chess::_move::BitPackedMove {
+        let mut least_valuable_attacker_move = chess::_move::BitPackedMove::default();
+        let mut least_valuable_piece_value: i32 = -100;
+
+        let moves = position.generate_moves(true);
+
+        for m in moves {
+            if m.get_to() == square {
+                if m.get_promotion() != Piece::Empty {
+                    return chess::_move::BitPackedMove::default();
+                }
+
+                if m.get_capture() != Piece::Empty {
+                    if (m.get_capture() as i32) > least_valuable_piece_value {
+                        least_valuable_piece_value = m.get_capture() as i32;
+                        least_valuable_attacker_move = m;
+                    }
+                }
+            }
+        }
+
+        return least_valuable_attacker_move;
+    }
+
+    fn see(&self, position: &mut Position, square: Square) -> i32 {
+        let mut value = 0;
+        let lva_move = self.get_least_valuable_attacker_move(position, square);
+        if lva_move != chess::_move::BitPackedMove::default() {
+            if position.make_move(lva_move, true) {
+                position.draw();
+                println!("- {}", lva_move);
+                value = _get_piece_value(
+                    lva_move.get_capture(),
+                    square as usize,
+                    position.get_game_phase_score(),
+                ) - self.see(position, square);
+                if value < 0 {
+                    value = 0;
+                }
+                position.unmake_move();
+            }
+        }
+        return value;
+    }
+
+    fn see_capture(&self, position: &mut Position, m: BitPackedMove) -> i32 {
+        position.draw();
+        let og_hash = position.hash;
+        position.make_move(m, true);
+        println!("+ {}", m);
+        // let value = _get_piece_value(
+        //     m.get_capture(),
+        //     m.get_to() as usize,
+        //     position.get_game_phase_score(),
+        // ); //  - self.see(position, m.get_to());
+        // if value < 0 {
+        //     return 0;
+        // }
+        position.unmake_move();
+        println!("=====================");
+        println!("{} {}", og_hash, position.hash);
+        assert!(position.hash == og_hash);
+        let value = 0;
+        assert!(value >= 0);
+        return value;
     }
 }
