@@ -147,8 +147,8 @@ impl Evaluator {
         let mut alpha = -50000;
         let mut beta = 50000;
         let mut current_depth = start_depth;
-
         let mut pv_line_completed_so_far = Vec::new();
+        self.repetition_table.clear();
 
         self.tt.lock().unwrap().increment_age();
 
@@ -249,7 +249,7 @@ impl Evaluator {
             .count()
             >= 2
         {
-            return 0;
+            return -15;
         }
 
         self.result.nodes += 1;
