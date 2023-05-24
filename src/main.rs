@@ -35,6 +35,11 @@ impl Cutoffs {
 }
 
 fn main() {
+    let mut u = UCI::new();
+    u.uci_loop();
+}
+
+fn _cutoff_testing() {
     let mut position = <board::Position as board::Board>::new(None);
 
     let mut global_cutoffs = Cutoffs::new();
