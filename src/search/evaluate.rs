@@ -704,6 +704,22 @@ impl Evaluator {
             }
         }
 
+        // white king safety
+        let white_king_position = utils::get_lsb(position.bitboards[Piece::WhiteKing as usize]);
+        white_score += utils::count_bits(
+            position.king_attacks[white_king_position as usize]
+                & position.bitboards[Piece::WhitePawn as usize],
+        ) as i32
+            * 6;
+
+        // black king safety
+        let black_king_position = utils::get_lsb(position.bitboards[Piece::BlackKing as usize]);
+        black_score += utils::count_bits(
+            position.king_attacks[black_king_position as usize]
+                & position.bitboards[Piece::BlackPawn as usize],
+        ) as i32
+            * 6;
+
         if position.turn == Color::White {
             score += white_score;
             score -= black_score;
