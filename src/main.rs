@@ -36,28 +36,8 @@ impl Cutoffs {
 }
 
 fn main() {
-    // let mut u = UCI::new();
-    // u.uci_loop();
-
-    let mut pos = board::Position::new(None);
-    // pos.set_fen(chess::constants::STARTING_FEN.to_string());
-    pos.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1".to_string());
-
-    let moves = pos.generate_moves(false);
-
-    pos.draw();
-
-    for m in moves {
-        println!("{}", m);
-        if !pos.make_move(m, false) {
-            continue;
-        }
-        println!("EXPECTED: {:016x}", pos.hash);
-        println!("GOT     : {:016x}", pos.incremented_hash);
-        assert!(pos.hash == pos.incremented_hash);
-        pos.unmake_move();
-        println!("====================");
-    }
+    let mut u = UCI::new();
+    u.uci_loop();
 }
 
 fn _cutoff_testing() {
