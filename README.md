@@ -2,7 +2,7 @@
 
 Redtail is a chess engine written in Rust. The engine employs various algorithms and strategies to make intelligent moves and offer a challenging opponent for chess enthusiasts. It may not be stockfish, but it's mine :)
 
-Challenge redtail to a game on [lichess](https://lichess.org/@/redtail-zero) or play redtail in the browser with WASM: https://webtail.vercel.app/
+Challenge redtail to a game on [lichess](https://lichess.org/@/redtail-zero) or play redtail in the browser with WASM: https://webtail.vercel.app/ (Note that the WASM version is usually a bit behind, and its strength is dependant on your hardware)
 
 ## Getting Started
 
