@@ -29,3 +29,5 @@ pub const PASSED_PAWN_BONUS: [i32; 8] = [0, 5, 10, 20, 35, 60, 100, 200];
 
 pub const SEMI_OPEN_FILE_SCORE: i32 = 10;
 pub const OPEN_FILE_SCORE: i32 = 20;
+
+pub const FUTILITY_MARGIN: i32 = 200;
