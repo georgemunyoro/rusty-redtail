@@ -497,16 +497,6 @@ impl Evaluator {
             }
 
             println!(" info pv{}", pv_str);
-
-            // println!("\n===========================");
-            // println!("Total recorded cutoffs: {}", self.result.cutoffs.total);
-            // println!("Cutoffs with 1st move: {}", self.result.cutoffs.move_1);
-            // println!("Cutoffs with 2st move: {}", self.result.cutoffs.move_2);
-            // println!(
-            //     "Avg. move no that causes cut off: {}",
-            //     self.result.cutoffs.avg_cutoff_move_no as f32 / self.result.cutoffs.total as f32
-            // );
-            // println!("===========================\n");
         }
     }
 
@@ -571,21 +561,19 @@ impl Evaluator {
             return 20000;
         }
 
-        let value: u32 = if m.is_capture() {
-            _MVV_LVA[m.get_piece() as usize][m.get_capture() as usize] + 1000
-        } else {
-            if self.killer_moves[0][self.result.ply as usize] == m {
-                return 9000;
-            }
+        if m.is_capture() {
+            return _MVV_LVA[m.get_piece() as usize][m.get_capture() as usize] + 1000;
+        }
 
-            if self.killer_moves[1][self.result.ply as usize] == m {
-                return 9000;
-            }
+        if self.killer_moves[0][self.result.ply as usize] == m {
+            return 9001;
+        }
 
-            return self.history_moves[m.get_piece() as usize][self.result.ply as usize] as u32;
-        };
+        if self.killer_moves[1][self.result.ply as usize] == m {
+            return 9000;
+        }
 
-        return value;
+        return self.history_moves[m.get_piece() as usize][self.result.ply as usize] as u32;
     }
 
     fn order_moves_p(
