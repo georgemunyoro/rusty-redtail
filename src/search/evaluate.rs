@@ -263,7 +263,7 @@ impl Evaluator {
         }
 
         let mut legal_moves_searched = 0;
-        let mut queue = self.order_moves_p(position.generate_moves(), position);
+        let mut queue = self.order_moves_p(position.generate_moves(false), position);
         let mut found_pv = false;
         let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
 
@@ -392,7 +392,7 @@ impl Evaluator {
             alpha = stand_pat
         }
 
-        let mut queue = self.order_moves_p(position.generate_moves(), position);
+        let mut queue = self.order_moves_p(position.generate_moves(true), position);
         while let Some(pm) = queue.pop() {
             if !pm.m.is_capture() {
                 continue;
