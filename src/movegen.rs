@@ -639,6 +639,8 @@ impl MoveGenerator for Position {
             return 1;
         }
 
+        println!("{} {}", self.hash, self.incremented_hash);
+
         let mut nodes = 0;
         let moves = self.generate_moves(false);
 
@@ -647,6 +649,17 @@ impl MoveGenerator for Position {
             if !is_legal_move {
                 continue;
             }
+
+            if self.hash != self.incremented_hash {
+                println!("move: {}", m);
+                self.draw();
+                println!(
+                    "HASH W/O EN: {:016x}",
+                    self.hash ^ self.zobrist_enpassant_keys[self.enpassant.unwrap() as usize]
+                );
+                println!("GOT: {:016x}", self.incremented_hash);
+            }
+            assert!(self.hash == self.incremented_hash);
 
             nodes += self.perft(depth - 1);
             self.unmake_move();

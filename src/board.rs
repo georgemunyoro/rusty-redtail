@@ -51,6 +51,7 @@ pub struct Position {
     pub zobrist_turn_key: u64,
 
     pub hash: u64,
+    pub incremented_hash: u64,
     pub material: [i32; 2],
 
     pub file_masks: [u64; 64],
@@ -71,6 +72,7 @@ pub struct HistoryEntry {
     pub halfmove_clock: u32,
     pub fullmove_number: u32,
     pub occupancies: [u64; 3],
+    pub hash: u64,
 }
 
 pub trait Board {
@@ -97,6 +99,7 @@ impl Board for Position {
 
         self.turn = !self.turn;
         self.update_hash();
+        self.incremented_hash ^= self.zobrist_turn_key;
     }
 
     fn new(fen: Option<&str>) -> Position {
@@ -142,6 +145,8 @@ impl Board for Position {
             file_masks: [0; 64],
             rank_masks: [0; 64],
             isolated_pawn_masks: [0; 64],
+
+            incremented_hash: 0u64,
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -153,6 +158,7 @@ impl Board for Position {
         pos.init_zorbrist_keys();
         pos.update_occupancies();
         pos.update_hash();
+        pos.incremented_hash = pos.hash;
 
         match fen {
             Some(p) => Position::set_fen(&mut pos, String::from(p)),
@@ -320,6 +326,7 @@ impl Board for Position {
 
         self.update_occupancies();
         self.update_hash();
+        self.incremented_hash = self.hash;
     }
 
     /// Returns true if the given square is attacked by the given color
@@ -462,6 +469,11 @@ impl Board for Position {
         self.material[self.turn as usize] +=
             _get_piece_value(m.get_piece(), m.get_to() as usize, game_phase_score);
 
+        self.incremented_hash ^=
+            self.zobrist_piece_keys[m.get_piece() as usize][m.get_from() as usize];
+        self.incremented_hash ^=
+            self.zobrist_piece_keys[m.get_piece() as usize][m.get_to() as usize];
+
         // remove the moving piece
         utils::clear_bit(
             &mut self.bitboards[m.get_piece() as usize],
@@ -480,10 +492,12 @@ impl Board for Position {
             );
             self.material[!self.turn as usize] -=
                 _get_piece_value(captured_piece, m.get_to() as usize, game_phase_score);
+
+            self.incremented_hash ^=
+                self.zobrist_piece_keys[captured_piece as usize][m.get_to() as usize];
         }
 
         // handle promotions
-
         if m.is_promotion() {
             // remove the pawn
             utils::clear_bit(
@@ -492,6 +506,9 @@ impl Board for Position {
             );
             self.material[self.turn as usize] -=
                 _get_piece_value(m.get_piece(), m.get_to() as usize, game_phase_score);
+            self.incremented_hash ^=
+                self.zobrist_piece_keys[m.get_piece() as usize][m.get_to() as usize];
+
             // add the promoted piece
             utils::set_bit(
                 &mut self.bitboards[m.get_promotion() as usize],
@@ -499,6 +516,8 @@ impl Board for Position {
             );
             self.material[self.turn as usize] +=
                 _get_piece_value(m.get_promotion(), m.get_to() as usize, game_phase_score);
+            self.incremented_hash ^=
+                self.zobrist_piece_keys[m.get_promotion() as usize][m.get_to() as usize];
         }
 
         // handle en passant
@@ -525,14 +544,19 @@ impl Board for Position {
             }
         }
 
+        if self.enpassant.is_some() {
+            self.incremented_hash ^= self.zobrist_enpassant_keys[self.enpassant.unwrap() as usize];
+        }
         self.enpassant = None;
 
         // handle setting the en passant square during double pawn pushes
         if m.get_piece() == Piece::WhitePawn || m.get_piece() == Piece::BlackPawn {
             if m.get_from() as i8 - m.get_to() as i8 == 16 {
                 self.enpassant = Some(Square::from(m.get_from() as u8 - 8));
+                self.incremented_hash = self.zobrist_enpassant_keys[m.get_from() as usize - 8];
             } else if m.get_from() as i8 - m.get_to() as i8 == -16 {
                 self.enpassant = Some(Square::from(m.get_from() as u8 + 8));
+                self.incremented_hash = self.zobrist_enpassant_keys[m.get_from() as usize + 8];
             }
         }
 
@@ -653,6 +677,8 @@ impl Board for Position {
         }
 
         self.turn = !self.turn;
+        self.incremented_hash ^= self.zobrist_turn_key;
+
         self.update_hash();
 
         return true;
@@ -664,6 +690,8 @@ impl Board for Position {
         self.apply_history_entry(history_entry);
 
         self.update_hash();
+
+        assert!(self.hash == self.incremented_hash)
     }
 }
 
@@ -780,6 +808,7 @@ impl Position {
             fullmove_number: self.fullmove_number,
             occupancies: self.occupancies,
             material: self.material,
+            hash: self.hash,
         };
     }
 
@@ -798,6 +827,7 @@ impl Position {
         self.fullmove_number = entry.fullmove_number;
         self.occupancies = entry.occupancies;
         self.material = entry.material;
+        self.incremented_hash = entry.hash;
     }
 
     pub fn get_piece_at_square(&self, square: u8) -> Piece {
