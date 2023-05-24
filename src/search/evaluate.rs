@@ -258,6 +258,13 @@ impl Evaluator {
             return tt_entry.get_value();
         }
 
+        if depth == 1 {
+            let static_evaluation = self.evaluate(position);
+            if (static_evaluation + FUTILITY_MARGIN) < alpha {
+                return self.quiescence(position, alpha, beta);
+            }
+        }
+
         if depth == 0 {
             return self.quiescence(position, alpha, beta);
         }
