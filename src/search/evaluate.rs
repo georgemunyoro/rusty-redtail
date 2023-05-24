@@ -147,8 +147,8 @@ impl Evaluator {
         let mut alpha = -50000;
         let mut beta = 50000;
         let mut current_depth = start_depth;
-
         let mut pv_line_completed_so_far = Vec::new();
+        self.repetition_table.clear();
 
         self.tt.lock().unwrap().increment_age();
 
@@ -249,7 +249,7 @@ impl Evaluator {
             .count()
             >= 2
         {
-            return 0;
+            return -15;
         }
 
         self.result.nodes += 1;
@@ -703,6 +703,22 @@ impl Evaluator {
                 black_score += OPEN_FILE_SCORE;
             }
         }
+
+        // white king safety
+        let white_king_position = utils::get_lsb(position.bitboards[Piece::WhiteKing as usize]);
+        white_score += utils::count_bits(
+            position.king_attacks[white_king_position as usize]
+                & position.bitboards[Piece::WhitePawn as usize],
+        ) as i32
+            * 6;
+
+        // black king safety
+        let black_king_position = utils::get_lsb(position.bitboards[Piece::BlackKing as usize]);
+        black_score += utils::count_bits(
+            position.king_attacks[black_king_position as usize]
+                & position.bitboards[Piece::BlackPawn as usize],
+        ) as i32
+            * 6;
 
         if position.turn == Color::White {
             score += white_score;
