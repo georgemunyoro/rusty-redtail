@@ -8,17 +8,49 @@ use crate::{
 
 pub trait MoveGenerator {
     fn generate_legal_moves(&mut self) -> Vec<chess::_move::BitPackedMove>;
-    fn generate_moves(&self) -> Vec<chess::_move::BitPackedMove>;
+    fn generate_moves(&self, only_captures: bool) -> Vec<chess::_move::BitPackedMove>;
 
-    fn generate_knight_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
-    fn generate_bishop_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
-    fn generate_rook_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
-    fn generate_queen_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
-    fn generate_king_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
+    fn generate_knight_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    );
+    fn generate_bishop_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    );
+    fn generate_rook_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    );
+    fn generate_queen_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    );
+    fn generate_king_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    );
     fn generate_castle_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
-    fn generate_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
-    fn generate_white_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
-    fn generate_black_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>);
+    fn generate_pawn_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    );
+    fn generate_white_pawn_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    );
+    fn generate_black_pawn_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    );
 
     fn perft(&mut self, depth: u8) -> u64;
 }
@@ -77,7 +109,11 @@ impl std::ops::Add for PerftResult {
 }
 
 impl MoveGenerator for Position {
-    fn generate_black_pawn_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+    fn generate_black_pawn_moves(
+        &self,
+        moves: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
         let mut piece_bitboard =
             self.bitboards[Piece::BlackPawn as usize] & !chess::constants::RANK_1;
 
@@ -86,7 +122,10 @@ impl MoveGenerator for Position {
             let target = Square::from((source as u8) + 8);
 
             // quiet pawn moves
-            if (target <= Square::H1) && self.get_piece_at_square(target as u8) == Piece::Empty {
+            if !only_captures
+                && (target <= Square::H1)
+                && self.get_piece_at_square(target as u8) == Piece::Empty
+            {
                 // pawn promotion
                 if source >= Square::A2 && source <= Square::H2 {
                     moves.extend(
@@ -179,7 +218,11 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_white_pawn_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+    fn generate_white_pawn_moves(
+        &self,
+        moves: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
         let mut piece_bitboard =
             self.bitboards[Piece::WhitePawn as usize] & !chess::constants::RANK_8;
 
@@ -188,7 +231,10 @@ impl MoveGenerator for Position {
             let target = Square::from((source as usize) - 8);
 
             // quiet pawn moves
-            if (target >= Square::A8) && self.get_piece_at_square(target as u8) == Piece::Empty {
+            if !only_captures
+                && (target >= Square::A8)
+                && self.get_piece_at_square(target as u8) == Piece::Empty
+            {
                 // pawn promotion
                 if source >= Square::A7 && source <= Square::H7 {
                     moves.extend(
@@ -281,18 +327,26 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_pawn_moves(&self, move_list: &mut Vec<chess::_move::BitPackedMove>) {
+    fn generate_pawn_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
         // white pawn moves
         if self.turn == Color::White {
-            self.generate_white_pawn_moves(move_list)
+            self.generate_white_pawn_moves(move_list, only_captures)
         }
         // black pawn moves
         else if self.turn == Color::Black {
-            self.generate_black_pawn_moves(move_list)
+            self.generate_black_pawn_moves(move_list, only_captures)
         }
     }
 
-    fn generate_knight_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+    fn generate_knight_moves(
+        &self,
+        moves: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
         let piece = if self.turn == Color::White {
             Piece::WhiteKnight
         } else {
@@ -301,10 +355,14 @@ impl MoveGenerator for Position {
 
         let mut piece_bitboard = self.bitboards[piece as usize];
         let friendly_pieces = self.occupancies[self.turn as usize];
+        let enemy_pieces = self.occupancies[!self.turn as usize];
 
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
             let mut knight_moves = self.knight_attacks[i as usize] & !friendly_pieces;
+            if only_captures {
+                knight_moves &= enemy_pieces
+            }
 
             while knight_moves != 0 {
                 let j = utils::pop_lsb(&mut knight_moves);
@@ -321,7 +379,11 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_bishop_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+    fn generate_bishop_moves(
+        &self,
+        moves: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
         let piece = if self.turn == Color::White {
             Piece::WhiteBishop
         } else {
@@ -338,6 +400,10 @@ impl MoveGenerator for Position {
                 .get_bishop_magic_attacks(Square::from(i), friendly_pieces | enemy_pieces)
                 & !friendly_pieces;
 
+            if only_captures {
+                bishop_moves &= enemy_pieces;
+            }
+
             while bishop_moves != 0 {
                 let j = utils::pop_lsb(&mut bishop_moves);
                 let mut m =
@@ -353,7 +419,11 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_rook_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+    fn generate_rook_moves(
+        &self,
+        moves: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
         let piece = if self.turn == Color::White {
             Piece::WhiteRook
         } else {
@@ -370,6 +440,10 @@ impl MoveGenerator for Position {
                 .get_rook_magic_attacks(Square::from(i), friendly_pieces | enemy_pieces)
                 & !friendly_pieces;
 
+            if only_captures {
+                rook_moves &= enemy_pieces;
+            }
+
             while rook_moves != 0 {
                 let j = utils::pop_lsb(&mut rook_moves);
                 let mut m =
@@ -385,7 +459,11 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_queen_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+    fn generate_queen_moves(
+        &self,
+        moves: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
         let piece = if self.turn == Color::White {
             Piece::WhiteQueen
         } else {
@@ -402,6 +480,10 @@ impl MoveGenerator for Position {
                 .get_queen_magic_attacks(Square::from(i), friendly_pieces | enemy_pieces)
                 & !friendly_pieces;
 
+            if only_captures {
+                queen_moves &= enemy_pieces;
+            }
+
             while queen_moves != 0 {
                 let j = utils::pop_lsb(&mut queen_moves);
                 let mut m =
@@ -417,7 +499,11 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_king_moves(&self, moves: &mut Vec<chess::_move::BitPackedMove>) {
+    fn generate_king_moves(
+        &self,
+        moves: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
         let piece = if self.turn == Color::White {
             Piece::WhiteKing
         } else {
@@ -426,10 +512,15 @@ impl MoveGenerator for Position {
 
         let mut piece_bitboard = self.bitboards[piece as usize];
         let friendly_pieces = self.occupancies[self.turn as usize];
+        let enemy_pieces = self.occupancies[!self.turn as usize];
 
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
             let mut king_moves = self.king_attacks[i as usize] & !friendly_pieces;
+
+            if only_captures {
+                king_moves &= enemy_pieces;
+            }
 
             while king_moves != 0 {
                 let j = utils::pop_lsb(&mut king_moves);
@@ -443,6 +534,10 @@ impl MoveGenerator for Position {
 
                 moves.push(m);
             }
+        }
+
+        if !only_captures {
+            self.generate_castle_moves(moves);
         }
     }
 
@@ -512,16 +607,15 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_moves(&self) -> Vec<chess::_move::BitPackedMove> {
+    fn generate_moves(&self, only_captures: bool) -> Vec<chess::_move::BitPackedMove> {
         let mut moves = Vec::with_capacity(256);
 
-        self.generate_castle_moves(&mut moves);
-        self.generate_knight_moves(&mut moves);
-        self.generate_bishop_moves(&mut moves);
-        self.generate_rook_moves(&mut moves);
-        self.generate_queen_moves(&mut moves);
-        self.generate_king_moves(&mut moves);
-        self.generate_pawn_moves(&mut moves);
+        self.generate_pawn_moves(&mut moves, only_captures);
+        self.generate_knight_moves(&mut moves, only_captures);
+        self.generate_bishop_moves(&mut moves, only_captures);
+        self.generate_rook_moves(&mut moves, only_captures);
+        self.generate_queen_moves(&mut moves, only_captures);
+        self.generate_king_moves(&mut moves, only_captures);
 
         return moves;
     }
@@ -529,7 +623,7 @@ impl MoveGenerator for Position {
     fn generate_legal_moves(&mut self) -> Vec<chess::_move::BitPackedMove> {
         let mut moves = Vec::with_capacity(256);
 
-        for m in self.generate_moves() {
+        for m in self.generate_moves(false) {
             let is_legal_move = self.make_move(m, false);
             if is_legal_move {
                 moves.push(m);
@@ -546,7 +640,7 @@ impl MoveGenerator for Position {
         }
 
         let mut nodes = 0;
-        let moves = self.generate_moves();
+        let moves = self.generate_moves(false);
 
         for m in moves {
             let is_legal_move = self.make_move(m, false);
