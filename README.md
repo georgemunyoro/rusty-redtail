@@ -1,4 +1,20 @@
-# Redtail Chess Engine
+
+<br />
+<p align="center">
+  <a href="https://github.com/georgemunyoro/rusty-redtail">
+     <img src="https://webtail.vercel.app/redtail.svg" width="200" height="200" />
+  </a>
+
+  <h3 align="center">Redtail Chess Engine</h3>
+
+  <p align="center">
+    <a href="https://lichess.org/@/redtail-zero"><strong>Check it out on Lichess</strong></a>
+    <br />
+    <a href="https://github.com/georgemunyoro/rusty-redtail/issues">Report Bug</a>
+    ·
+    <a href="https://github.com/georgemunyoro/rusty-redtail/issues">Request Feature</a>
+  </p>
+</p>
 
 Redtail is a chess engine written in Rust. The engine employs various algorithms and strategies to make intelligent moves and offer a challenging opponent for chess enthusiasts. It may not be stockfish, but it's mine :)
 
@@ -11,7 +27,7 @@ To use redtail, follow these steps:
 1. Clone the repository:
 
    ```
-   git clone https://github.com/georgemunyoro/redtail.git
+   git clone https://github.com/georgemunyoro/rusty-redtail.git
    ```
 
 2. Build the project using Cargo:
