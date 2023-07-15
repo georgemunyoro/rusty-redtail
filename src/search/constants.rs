@@ -23,8 +23,8 @@ pub const MAX_PLY: usize = 64;
 pub const _REDUCTION_LIMIT: u8 = 3;
 pub const _FULL_DEPTH_MOVES: u8 = 3;
 
-pub const DOUBLED_PAWN_PENALTY: i32 = -10;
-pub const ISOLATED_PAWN_PENALTY: i32 = -10;
+pub const DOUBLED_PAWN_PENALTY: i32 = -15;
+pub const ISOLATED_PAWN_PENALTY: i32 = -15;
 pub const PASSED_PAWN_BONUS: [i32; 8] = [0, 5, 10, 20, 35, 60, 100, 200];
 
 pub const SEMI_OPEN_FILE_SCORE: i32 = 10;

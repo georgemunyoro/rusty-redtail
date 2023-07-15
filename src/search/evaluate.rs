@@ -609,9 +609,16 @@ impl Evaluator {
     }
 
     pub fn evaluate(&mut self, position: &mut Position) -> i32 {
-        let mut score = position.material[position.turn as usize]
+        let material_score = position.material[position.turn as usize]
             - position.material[(!position.turn) as usize];
 
+        return material_score
+            + self.evaluate_pawn_structure(position)
+            + self.evaluate_open_files(position)
+            + self.evaluate_king_safety(position);
+    }
+
+    fn evaluate_pawn_structure(&mut self, position: &mut Position) -> i32 {
         let mut white_score = 0;
         let mut black_score = 0;
 
@@ -667,6 +674,17 @@ impl Evaluator {
             }
         }
 
+        return if position.turn == Color::White {
+            white_score - black_score
+        } else {
+            black_score - white_score
+        };
+    }
+
+    fn evaluate_open_files(&mut self, position: &mut Position) -> i32 {
+        let mut white_score = 0;
+        let mut black_score = 0;
+
         let mut white_rooks = position.bitboards[Piece::WhiteRook as usize];
         while white_rooks != 0 {
             let square = utils::pop_lsb(&mut white_rooks);
@@ -711,9 +729,17 @@ impl Evaluator {
             }
         }
 
+        return if position.turn == Color::White {
+            white_score - black_score
+        } else {
+            black_score - white_score
+        };
+    }
+
+    fn evaluate_king_safety(&mut self, position: &mut Position) -> i32 {
         // white king safety
         let white_king_position = utils::get_lsb(position.bitboards[Piece::WhiteKing as usize]);
-        white_score += utils::count_bits(
+        let white_score = utils::count_bits(
             position.king_attacks[white_king_position as usize]
                 & position.bitboards[Piece::WhitePawn as usize],
         ) as i32
@@ -721,20 +747,16 @@ impl Evaluator {
 
         // black king safety
         let black_king_position = utils::get_lsb(position.bitboards[Piece::BlackKing as usize]);
-        black_score += utils::count_bits(
+        let black_score = utils::count_bits(
             position.king_attacks[black_king_position as usize]
                 & position.bitboards[Piece::BlackPawn as usize],
         ) as i32
             * 6;
 
-        if position.turn == Color::White {
-            score += white_score;
-            score -= black_score;
+        return if position.turn == Color::White {
+            white_score - black_score
         } else {
-            score += black_score;
-            score -= white_score;
-        }
-
-        return score;
+            black_score - white_score
+        };
     }
 }
