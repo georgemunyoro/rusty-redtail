@@ -12,7 +12,7 @@ use crate::{
         OPEN_KNIGHT_POSITIONAL_SCORE, OPEN_PAWN_POSITIONAL_SCORE, OPEN_QUEEN_POSITIONAL_SCORE,
         OPEN_ROOK_POSITIONAL_SCORE,
     },
-    utils::{self, pop_lsb},
+    utils::{self, get_bit, pop_lsb},
 };
 
 /// A chess position
@@ -59,6 +59,8 @@ pub struct Position {
 
     pub white_passed_pawn_masks: [u64; 64],
     pub black_passed_pawn_masks: [u64; 64],
+
+    pub opponent_attack_map: u64,
 }
 
 pub struct HistoryEntry {
@@ -79,6 +81,13 @@ pub trait Board {
     fn draw(&mut self);
     fn set_fen(&mut self, fen: String);
     fn is_square_attacked(&self, square: Square, color: Color) -> bool;
+    fn is_square_attacked_w_occupancy(
+        &self,
+        square: Square,
+        color: Color,
+        both_occupancy: u64,
+    ) -> bool;
+
     fn get_game_phase_score(&self) -> i32;
 
     fn is_in_check(&self) -> bool;
@@ -143,6 +152,8 @@ impl Board for Position {
             file_masks: [0; 64],
             rank_masks: [0; 64],
             isolated_pawn_masks: [0; 64],
+
+            opponent_attack_map: 0,
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -165,15 +176,9 @@ impl Board for Position {
 
     /// Returns true if the current side's king is in check
     fn is_in_check(&self) -> bool {
-        let king_square = if self.turn == Color::White {
-            utils::get_lsb(self.bitboards[Piece::WhiteKing as usize])
-        } else {
-            utils::get_lsb(self.bitboards[Piece::BlackKing as usize])
-        };
-        if king_square >= 64 {
-            return true;
-        }
-        self.is_square_attacked(Square::from(king_square), !self.turn)
+        let king_square =
+            utils::get_lsb(self.bitboards[(self.turn as usize * 6) + (Piece::WhiteKing as usize)]);
+        return king_square >= 64 || self.is_square_attacked(Square::from(king_square), !self.turn);
     }
 
     /// Returns an FEN string representing the current position
@@ -191,10 +196,10 @@ impl Board for Position {
                 fen.push('/');
             }
 
-            let piece = self.get_piece_at_square(i);
-            if piece == Piece::Empty {
+            if get_bit(self.occupancies[2], i) == 0 {
                 empty += 1;
             } else {
+                let piece = self.get_piece_at_square(i);
                 if empty != 0 {
                     fen.push_str(&empty.to_string());
                     empty = 0;
@@ -323,102 +328,52 @@ impl Board for Position {
         self.update_hash();
     }
 
+    /// Returns true if the given square is attacked by the given color, takes a custom occupancy
+    fn is_square_attacked_w_occupancy(
+        &self,
+        square: Square,
+        color: Color,
+        both_occupancy: u64,
+    ) -> bool {
+        let piece_offset = color as usize * 6;
+
+        let p_attacks = self.pawn_attacks[!color as usize][square as usize]
+            & self.bitboards[Piece::WhitePawn as usize + piece_offset];
+
+        let n_attacks = self.knight_attacks[square as usize]
+            & self.bitboards[Piece::WhiteKnight as usize + piece_offset];
+
+        let bq_attacks = self.get_bishop_magic_attacks(square, both_occupancy)
+            & (self.bitboards[Piece::WhiteBishop as usize + piece_offset]
+                | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
+
+        let rq_attacks = self.get_rook_magic_attacks(square, both_occupancy)
+            & (self.bitboards[Piece::WhiteRook as usize + piece_offset]
+                | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
+
+        return (p_attacks | n_attacks | bq_attacks | rq_attacks) != 0;
+    }
+
     /// Returns true if the given square is attacked by the given color
     fn is_square_attacked(&self, square: Square, color: Color) -> bool {
-        if color == Color::White {
-            // attacked by white pawns
-            if (self.pawn_attacks[Color::Black as usize][square as usize]
-                & self.bitboards[Piece::WhitePawn as usize])
-                != 0
-            {
-                return true;
-            }
+        let piece_offset = color as usize * 6;
+        let both_occupancy = self.occupancies[2];
 
-            // attackd by white bishops
-            if self.get_bishop_magic_attacks(square, self.get_both_occupancy())
-                & self.bitboards[Piece::WhiteBishop as usize]
-                != 0
-            {
-                return true;
-            }
-        } else {
-            // attacked by black pawns
-            if (self.pawn_attacks[Color::White as usize][square as usize]
-                & self.bitboards[Piece::BlackPawn as usize])
-                != 0
-            {
-                return true;
-            }
+        let p_attacks = self.pawn_attacks[!color as usize][square as usize]
+            & self.bitboards[Piece::WhitePawn as usize + piece_offset];
 
-            // attackd by black bishops
-            if self.get_bishop_magic_attacks(square, self.get_both_occupancy())
-                & self.bitboards[Piece::BlackBishop as usize]
-                != 0
-            {
-                return true;
-            }
-        }
+        let n_attacks = self.knight_attacks[square as usize]
+            & self.bitboards[Piece::WhiteKnight as usize + piece_offset];
 
-        // attacked by knights
-        let knight_piece = if color == Color::White {
-            Piece::WhiteKnight
-        } else {
-            Piece::BlackKnight
-        };
-        if (self.knight_attacks[square as usize] & self.bitboards[knight_piece as usize]) != 0 {
-            return true;
-        }
+        let bq_attacks = self.get_bishop_magic_attacks(square, both_occupancy)
+            & (self.bitboards[Piece::WhiteBishop as usize + piece_offset]
+                | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
 
-        // attacked by bishops
-        let bishop_piece = if color == Color::White {
-            Piece::WhiteBishop
-        } else {
-            Piece::BlackBishop
-        };
-        if (self.get_bishop_magic_attacks(square, self.get_both_occupancy())
-            & self.bitboards[bishop_piece as usize])
-            != 0
-        {
-            return true;
-        }
+        let rq_attacks = self.get_rook_magic_attacks(square, both_occupancy)
+            & (self.bitboards[Piece::WhiteRook as usize + piece_offset]
+                | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
 
-        // attacked by rooks
-        let rook_piece = if color == Color::White {
-            Piece::WhiteRook
-        } else {
-            Piece::BlackRook
-        };
-        if (self.get_rook_magic_attacks(square, self.get_both_occupancy())
-            & self.bitboards[rook_piece as usize])
-            != 0
-        {
-            return true;
-        }
-
-        // attacked by queens
-        let queen_piece = if color == Color::White {
-            Piece::WhiteQueen
-        } else {
-            Piece::BlackQueen
-        };
-        if (self.get_queen_magic_attacks(square, self.get_both_occupancy())
-            & self.bitboards[queen_piece as usize])
-            != 0
-        {
-            return true;
-        }
-
-        // attacked by kings
-        let king_piece = if color == Color::White {
-            Piece::WhiteKing
-        } else {
-            Piece::BlackKing
-        };
-        if (self.king_attacks[square as usize] & self.bitboards[king_piece as usize]) != 0 {
-            return true;
-        }
-
-        return false;
+        return (p_attacks | n_attacks | bq_attacks | rq_attacks) != 0;
     }
 
     fn get_game_phase_score(&self) -> i32 {
@@ -514,20 +469,17 @@ impl Board for Position {
 
         // handle en passant
         if m.is_enpassant() {
-            let en_captured_square = if self.turn == Color::White {
-                (m.get_to() as u8) + 8
-            } else {
-                (m.get_to() as u8) - 8
-            };
+            let en_captured_square = (m.get_to() as u8) + (8 - (self.turn as u8 * 16));
 
-            let en_captured_piece = self.get_piece_at_square(en_captured_square);
+            if get_bit(self.occupancies[2], en_captured_square) != 0 {
+                let en_captured_piece = self.get_piece_at_square(en_captured_square);
 
-            if en_captured_piece != Piece::Empty {
                 // remove the captured pawn
                 utils::clear_bit(
                     &mut self.bitboards[en_captured_piece as usize],
                     en_captured_square,
                 );
+
                 self.material[!self.turn as usize] -= _get_piece_value(
                     en_captured_piece,
                     en_captured_square as usize,
@@ -540,12 +492,10 @@ impl Board for Position {
 
         // handle setting the en passant square during double pawn pushes
         if m.get_piece() == Piece::WhitePawn || m.get_piece() == Piece::BlackPawn {
-            if m.get_from() as i8 - m.get_to() as i8 == 16 {
-                self.enpassant = Some(Square::from(m.get_from() as u8 - 8));
-                self.hash ^= self.zobrist_enpassant_keys[m.get_from() as usize - 8];
-            } else if m.get_from() as i8 - m.get_to() as i8 == -16 {
-                self.enpassant = Some(Square::from(m.get_from() as u8 + 8));
-                self.hash ^= self.zobrist_enpassant_keys[m.get_from() as usize + 8];
+            let offset = -1 * (m.get_from() as i8 - m.get_to() as i8) / 2;
+            if offset == 8 || offset == -8 {
+                self.enpassant = Some(Square::from((m.get_from() as i8 + offset) as u8));
+                self.hash ^= self.zobrist_enpassant_keys[(m.get_from() as i8 + offset) as usize];
             }
         }
 
@@ -646,33 +596,22 @@ impl Board for Position {
                 .remove_right(CastlingRights::BLACK_KINGSIDE | CastlingRights::BLACK_QUEENSIDE);
         }
 
-        // First move of a rook disables castling
-        if m.get_piece() == Piece::WhiteRook
-            && m.get_from() == Square::A1
-            && self.castling.can_castle(CastlingRights::WHITE_QUEENSIDE)
-        {
-            self.castling.remove_right(CastlingRights::WHITE_QUEENSIDE);
-        }
-
-        if m.get_piece() == Piece::WhiteRook
-            && m.get_from() == Square::H1
-            && self.castling.can_castle(CastlingRights::WHITE_KINGSIDE)
-        {
-            self.castling.remove_right(CastlingRights::WHITE_KINGSIDE);
-        }
-
-        if m.get_piece() == Piece::BlackRook
-            && m.get_from() == Square::A8
-            && self.castling.can_castle(CastlingRights::BLACK_QUEENSIDE)
-        {
-            self.castling.remove_right(CastlingRights::BLACK_QUEENSIDE);
-        }
-
-        if m.get_piece() == Piece::BlackRook
-            && m.get_from() == Square::H8
-            && self.castling.can_castle(CastlingRights::BLACK_KINGSIDE)
-        {
-            self.castling.remove_right(CastlingRights::BLACK_KINGSIDE);
+        match m.get_piece() {
+            Piece::WhiteRook => {
+                if m.get_from() == Square::A1 {
+                    self.castling.remove_right(CastlingRights::WHITE_QUEENSIDE);
+                } else if m.get_from() == Square::H1 {
+                    self.castling.remove_right(CastlingRights::WHITE_KINGSIDE);
+                }
+            }
+            Piece::BlackRook => {
+                if m.get_from() == Square::A8 {
+                    self.castling.remove_right(CastlingRights::BLACK_QUEENSIDE);
+                } else if m.get_from() == Square::H8 {
+                    self.castling.remove_right(CastlingRights::BLACK_KINGSIDE);
+                }
+            }
+            _ => {}
         }
 
         self.hash ^= self.zobrist_castling_keys[self.castling.get_rights_u8() as usize];
@@ -680,9 +619,12 @@ impl Board for Position {
         self.update_occupancies();
 
         // ensure the king is not in check
-        if self.is_in_check() {
-            self.unmake_move();
-            return false;
+        if m.get_piece() != Piece::WhiteKing && m.get_piece() != Piece::BlackKing && !m.is_castle()
+        {
+            if self.is_in_check() {
+                self.unmake_move();
+                return false;
+            }
         }
 
         self.turn = !self.turn;
@@ -817,8 +759,22 @@ impl Position {
 
     /// updates the occupancies bitboards
     fn update_occupancies(&mut self) {
-        self.occupancies[Color::Black as usize] = self.get_occupancy(Color::Black);
-        self.occupancies[Color::White as usize] = self.get_occupancy(Color::White);
+        self.occupancies[Color::White as usize] = self.bitboards[Piece::WhitePawn as usize]
+            | self.bitboards[Piece::WhiteKnight as usize]
+            | self.bitboards[Piece::WhiteBishop as usize]
+            | self.bitboards[Piece::WhiteRook as usize]
+            | self.bitboards[Piece::WhiteQueen as usize]
+            | self.bitboards[Piece::WhiteKing as usize];
+
+        self.occupancies[Color::Black as usize] = self.bitboards[Piece::BlackPawn as usize]
+            | self.bitboards[Piece::BlackKnight as usize]
+            | self.bitboards[Piece::BlackBishop as usize]
+            | self.bitboards[Piece::BlackRook as usize]
+            | self.bitboards[Piece::BlackQueen as usize]
+            | self.bitboards[Piece::BlackKing as usize];
+
+        self.occupancies[2] =
+            self.occupancies[Color::White as usize] | self.occupancies[Color::Black as usize];
     }
 
     pub fn apply_history_entry(&mut self, entry: HistoryEntry) {
@@ -1282,29 +1238,6 @@ impl Position {
     pub fn get_queen_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
         return self.get_bishop_magic_attacks(square, occupancy)
             | self.get_rook_magic_attacks(square, occupancy);
-    }
-
-    pub fn get_occupancy(&self, color: Color) -> u64 {
-        let mut white_occupancy = 0u64;
-        let mut black_occupancy = 0u64;
-
-        for piece in (Piece::WhitePawn as u8)..=(Piece::WhiteKing as u8) {
-            white_occupancy |= self.bitboards[piece as usize];
-        }
-
-        for piece in (Piece::BlackPawn as u8)..=(Piece::BlackKing as u8) {
-            black_occupancy |= self.bitboards[piece as usize];
-        }
-
-        if color == Color::White {
-            return white_occupancy;
-        }
-
-        if color == Color::Black {
-            return black_occupancy;
-        }
-
-        return white_occupancy | black_occupancy;
     }
 
     pub fn get_both_occupancy(&self) -> u64 {
