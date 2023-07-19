@@ -351,29 +351,15 @@ impl Board for Position {
             & (self.bitboards[Piece::WhiteRook as usize + piece_offset]
                 | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
 
-        return (p_attacks | n_attacks | bq_attacks | rq_attacks) != 0;
+        let k_attacks = self.king_attacks[square as usize]
+            & self.bitboards[Piece::WhiteKing as usize + piece_offset];
+
+        return (p_attacks | n_attacks | bq_attacks | rq_attacks | k_attacks) != 0;
     }
 
     /// Returns true if the given square is attacked by the given color
     fn is_square_attacked(&self, square: Square, color: Color) -> bool {
-        let piece_offset = color as usize * 6;
-        let both_occupancy = self.occupancies[2];
-
-        let p_attacks = self.pawn_attacks[!color as usize][square as usize]
-            & self.bitboards[Piece::WhitePawn as usize + piece_offset];
-
-        let n_attacks = self.knight_attacks[square as usize]
-            & self.bitboards[Piece::WhiteKnight as usize + piece_offset];
-
-        let bq_attacks = self.get_bishop_magic_attacks(square, both_occupancy)
-            & (self.bitboards[Piece::WhiteBishop as usize + piece_offset]
-                | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
-
-        let rq_attacks = self.get_rook_magic_attacks(square, both_occupancy)
-            & (self.bitboards[Piece::WhiteRook as usize + piece_offset]
-                | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
-
-        return (p_attacks | n_attacks | bq_attacks | rq_attacks) != 0;
+        return self.is_square_attacked_w_occupancy(square, color, self.occupancies[2]);
     }
 
     fn get_game_phase_score(&self) -> i32 {
