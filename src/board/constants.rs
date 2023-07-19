@@ -3,6 +3,11 @@ pub static BISHOP_RELEVANT_BITS: [u32; 64] = [
     5, 5, 7, 9, 9, 7, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 6,
 ];
 
+pub static BLACK_KING_SIDE_CASTLE: u64 = 0x0000000000000060u64;
+pub static BLACK_QUEEN_SIDE_CASTLE: u64 = 0x000000000000000Eu64;
+pub static WHITE_KING_SIDE_CASTLE: u64 = 0x6000000000000000u64;
+pub static WHITE_QUEEN_SIDE_CASTLE: u64 = 0x0E00000000000000u64;
+
 pub static ROOK_RELEVANT_BITS: [u32; 64] = [
     12, 11, 11, 11, 11, 11, 11, 12, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11,
     11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11,
