@@ -298,7 +298,7 @@ impl Board for Position {
             if piece == chess::piece::Piece::Empty {
                 continue;
             }
-            let v = _get_piece_value(piece, i as usize, self.get_game_phase_score());
+            let v = _get_piece_value_bl(piece as usize, i as usize, self.get_game_phase_score());
             if piece as usize >= 6 {
                 self.material[Color::Black as usize] += v;
             } else {
@@ -401,8 +401,11 @@ impl Board for Position {
             &mut self.bitboards[m.get_piece() as usize],
             m.get_to() as u8,
         );
-        self.material[self.turn as usize] +=
-            _get_piece_value(m.get_piece(), m.get_to() as usize, game_phase_score);
+        self.material[self.turn as usize] += _get_piece_value_bl(
+            m.get_piece() as usize,
+            m.get_to() as usize,
+            game_phase_score,
+        );
 
         self.hash ^= self.zobrist_piece_keys[m.get_piece() as usize][m.get_from() as usize];
         self.hash ^= self.zobrist_piece_keys[m.get_piece() as usize][m.get_to() as usize];
@@ -412,8 +415,11 @@ impl Board for Position {
             &mut self.bitboards[m.get_piece() as usize],
             m.get_from() as u8,
         );
-        self.material[self.turn as usize] -=
-            _get_piece_value(m.get_piece(), m.get_from() as usize, game_phase_score);
+        self.material[self.turn as usize] -= _get_piece_value_bl(
+            m.get_piece() as usize,
+            m.get_from() as usize,
+            game_phase_score,
+        );
 
         // handle captures
         if m.is_capture() {
@@ -423,8 +429,11 @@ impl Board for Position {
                 &mut self.bitboards[captured_piece as usize],
                 m.get_to() as u8,
             );
-            self.material[!self.turn as usize] -=
-                _get_piece_value(captured_piece, m.get_to() as usize, game_phase_score);
+            self.material[!self.turn as usize] -= _get_piece_value_bl(
+                captured_piece as usize,
+                m.get_to() as usize,
+                game_phase_score,
+            );
             self.hash ^= self.zobrist_piece_keys[captured_piece as usize][m.get_to() as usize];
         }
 
@@ -435,8 +444,11 @@ impl Board for Position {
                 &mut self.bitboards[m.get_piece() as usize],
                 m.get_to() as u8,
             );
-            self.material[self.turn as usize] -=
-                _get_piece_value(m.get_piece(), m.get_to() as usize, game_phase_score);
+            self.material[self.turn as usize] -= _get_piece_value_bl(
+                m.get_piece() as usize,
+                m.get_to() as usize,
+                game_phase_score,
+            );
             self.hash ^= self.zobrist_piece_keys[m.get_piece() as usize][m.get_to() as usize];
 
             // add the promoted piece
@@ -444,8 +456,11 @@ impl Board for Position {
                 &mut self.bitboards[m.get_promotion() as usize],
                 m.get_to() as u8,
             );
-            self.material[self.turn as usize] +=
-                _get_piece_value(m.get_promotion(), m.get_to() as usize, game_phase_score);
+            self.material[self.turn as usize] += _get_piece_value_bl(
+                m.get_promotion() as usize,
+                m.get_to() as usize,
+                game_phase_score,
+            );
             self.hash ^= self.zobrist_piece_keys[m.get_promotion() as usize][m.get_to() as usize];
         }
 
@@ -466,8 +481,8 @@ impl Board for Position {
                     en_captured_square,
                 );
 
-                self.material[!self.turn as usize] -= _get_piece_value(
-                    en_captured_piece,
+                self.material[!self.turn as usize] -= _get_piece_value_bl(
+                    en_captured_piece as usize,
                     en_captured_square as usize,
                     game_phase_score,
                 );
@@ -494,8 +509,11 @@ impl Board for Position {
                         &mut self.bitboards[Piece::WhiteRook as usize],
                         Square::A1 as u8,
                     );
-                    self.material[self.turn as usize] -=
-                        _get_piece_value(Piece::WhiteRook, Square::A1 as usize, game_phase_score);
+                    self.material[self.turn as usize] -= _get_piece_value_bl(
+                        Piece::WhiteRook as usize,
+                        Square::A1 as usize,
+                        game_phase_score,
+                    );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::A1 as usize];
 
@@ -503,8 +521,11 @@ impl Board for Position {
                         &mut self.bitboards[Piece::WhiteRook as usize],
                         Square::D1 as u8,
                     );
-                    self.material[self.turn as usize] +=
-                        _get_piece_value(Piece::WhiteRook, Square::D1 as usize, game_phase_score);
+                    self.material[self.turn as usize] += _get_piece_value_bl(
+                        Piece::WhiteRook as usize,
+                        Square::D1 as usize,
+                        game_phase_score,
+                    );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::D1 as usize];
                 }
@@ -514,8 +535,11 @@ impl Board for Position {
                         &mut self.bitboards[Piece::WhiteRook as usize],
                         Square::H1 as u8,
                     );
-                    self.material[self.turn as usize] -=
-                        _get_piece_value(Piece::WhiteRook, Square::H1 as usize, game_phase_score);
+                    self.material[self.turn as usize] -= _get_piece_value_bl(
+                        Piece::WhiteRook as usize,
+                        Square::H1 as usize,
+                        game_phase_score,
+                    );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::H1 as usize];
 
@@ -523,8 +547,11 @@ impl Board for Position {
                         &mut self.bitboards[Piece::WhiteRook as usize],
                         Square::F1 as u8,
                     );
-                    self.material[self.turn as usize] +=
-                        _get_piece_value(Piece::WhiteRook, Square::F1 as usize, game_phase_score);
+                    self.material[self.turn as usize] += _get_piece_value_bl(
+                        Piece::WhiteRook as usize,
+                        Square::F1 as usize,
+                        game_phase_score,
+                    );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::F1 as usize];
                 }
@@ -534,8 +561,11 @@ impl Board for Position {
                         &mut self.bitboards[Piece::BlackRook as usize],
                         Square::A8 as u8,
                     );
-                    self.material[self.turn as usize] -=
-                        _get_piece_value(Piece::BlackRook, Square::A8 as usize, game_phase_score);
+                    self.material[self.turn as usize] -= _get_piece_value_bl(
+                        Piece::BlackRook as usize,
+                        Square::A8 as usize,
+                        game_phase_score,
+                    );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::BlackRook as usize][Square::A8 as usize];
 
@@ -543,8 +573,11 @@ impl Board for Position {
                         &mut self.bitboards[Piece::BlackRook as usize],
                         Square::D8 as u8,
                     );
-                    self.material[self.turn as usize] +=
-                        _get_piece_value(Piece::BlackRook, Square::D8 as usize, game_phase_score);
+                    self.material[self.turn as usize] += _get_piece_value_bl(
+                        Piece::BlackRook as usize,
+                        Square::D8 as usize,
+                        game_phase_score,
+                    );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::BlackRook as usize][Square::D8 as usize];
                 }
@@ -554,8 +587,11 @@ impl Board for Position {
                         &mut self.bitboards[Piece::BlackRook as usize],
                         Square::H8 as u8,
                     );
-                    self.material[self.turn as usize] -=
-                        _get_piece_value(Piece::BlackRook, Square::H8 as usize, game_phase_score);
+                    self.material[self.turn as usize] -= _get_piece_value_bl(
+                        Piece::BlackRook as usize,
+                        Square::H8 as usize,
+                        game_phase_score,
+                    );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::BlackRook as usize][Square::H8 as usize];
 
@@ -563,8 +599,11 @@ impl Board for Position {
                         &mut self.bitboards[Piece::BlackRook as usize],
                         Square::F8 as u8,
                     );
-                    self.material[self.turn as usize] +=
-                        _get_piece_value(Piece::BlackRook, Square::F8 as usize, game_phase_score);
+                    self.material[self.turn as usize] += _get_piece_value_bl(
+                        Piece::BlackRook as usize,
+                        Square::F8 as usize,
+                        game_phase_score,
+                    );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::BlackRook as usize][Square::F8 as usize];
                 }
@@ -1204,21 +1243,20 @@ impl Position {
 
     pub fn get_bishop_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
         let mut mutable_occupancy = occupancy;
-        mutable_occupancy &= self.magic_bishop_masks[usize::from(u8::from(square))];
-        mutable_occupancy = mutable_occupancy
-            .wrapping_mul(constants::BISHOP_MAGIC_NUMBERS[usize::from(u8::from(square))]);
-        mutable_occupancy >>= 64 - constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))];
-        return self.magic_bishop_attacks[usize::from(u8::from(square))]
-            [mutable_occupancy as usize];
+        mutable_occupancy &= self.magic_bishop_masks[square as usize];
+        mutable_occupancy =
+            mutable_occupancy.wrapping_mul(constants::BISHOP_MAGIC_NUMBERS[square as usize]);
+        mutable_occupancy >>= 64 - constants::BISHOP_RELEVANT_BITS[square as usize];
+        return self.magic_bishop_attacks[square as usize][mutable_occupancy as usize];
     }
 
     pub fn get_rook_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
         let mut mutable_occupancy = occupancy;
-        mutable_occupancy &= self.magic_rook_masks[usize::from(u8::from(square))];
-        mutable_occupancy = mutable_occupancy
-            .wrapping_mul(constants::ROOK_MAGIC_NUMBERS[usize::from(u8::from(square))]);
-        mutable_occupancy >>= 64 - constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))];
-        return self.magic_rook_attacks[usize::from(u8::from(square))][mutable_occupancy as usize];
+        mutable_occupancy &= self.magic_rook_masks[square as usize];
+        mutable_occupancy =
+            mutable_occupancy.wrapping_mul(constants::ROOK_MAGIC_NUMBERS[square as usize]);
+        mutable_occupancy >>= 64 - constants::ROOK_RELEVANT_BITS[square as usize];
+        return self.magic_rook_attacks[square as usize][mutable_occupancy as usize];
     }
 
     pub fn get_queen_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
@@ -1246,8 +1284,15 @@ impl Position {
 mod tests {
     use crate::{
         board::{constants, Board, Position},
-        chess::{piece::Piece, square::SQUARE_ITER},
+        chess::{constants::STARTING_FEN, piece::Piece, square::SQUARE_ITER},
+        movegen::MoveGenerator,
     };
+
+    extern crate test;
+
+    use test::{black_box, Bencher};
+
+    use super::_get_piece_value_bl;
 
     #[test]
     fn get_piece_at_square_and_set_fen_works() {
@@ -1313,6 +1358,106 @@ mod tests {
             );
         }
     }
+
+    #[bench]
+    fn bench_get_piece_value(b: &mut Bencher) {
+        let board = <Position as Board>::new(Some(STARTING_FEN));
+        b.iter(|| {
+            for square in SQUARE_ITER {
+                let piece = board.get_piece_at_square(square as u8);
+
+                if piece != Piece::Empty {
+                    black_box(_get_piece_value_bl(
+                        piece as usize,
+                        square as usize,
+                        board.get_game_phase_score(),
+                    ));
+                }
+            }
+        });
+    }
+
+    #[bench]
+    fn bench_generate_moves(b: &mut Bencher) {
+        let mut board = <Position as Board>::new(Some(
+            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+        ));
+        b.iter(|| {
+            board.generate_moves(false);
+        })
+    }
+
+    #[bench]
+    fn bench_generate_pawn_moves(b: &mut Bencher) {
+        let board = <Position as Board>::new(Some(
+            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+        ));
+        let mut moves = Vec::with_capacity(256);
+        b.iter(|| {
+            moves.clear();
+            board.generate_pawn_moves(&mut moves, false);
+        })
+    }
+
+    #[bench]
+    fn bench_generate_knight_moves(b: &mut Bencher) {
+        let board = <Position as Board>::new(Some(
+            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+        ));
+        let mut moves = Vec::with_capacity(256);
+        b.iter(|| {
+            moves.clear();
+            board.generate_knight_moves(&mut moves, false);
+        })
+    }
+
+    #[bench]
+    fn bench_generate_bishop_moves(b: &mut Bencher) {
+        let board = <Position as Board>::new(Some(
+            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+        ));
+        let mut moves = Vec::with_capacity(256);
+        b.iter(|| {
+            moves.clear();
+            board.generate_bishop_moves(&mut moves, false);
+        })
+    }
+
+    #[bench]
+    fn bench_generate_rook_moves(b: &mut Bencher) {
+        let board = <Position as Board>::new(Some(
+            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+        ));
+        let mut moves = Vec::with_capacity(256);
+        b.iter(|| {
+            moves.clear();
+            board.generate_rook_moves(&mut moves, false);
+        })
+    }
+
+    #[bench]
+    fn bench_generate_queen_moves(b: &mut Bencher) {
+        let board = <Position as Board>::new(Some(
+            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+        ));
+        let mut moves = Vec::with_capacity(256);
+        b.iter(|| {
+            moves.clear();
+            board.generate_queen_moves(&mut moves, false);
+        })
+    }
+
+    #[bench]
+    fn bench_generate_king_moves(b: &mut Bencher) {
+        let mut board = <Position as Board>::new(Some(
+            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+        ));
+        let mut moves = Vec::with_capacity(256);
+        b.iter(|| {
+            moves.clear();
+            board.generate_king_moves(&mut moves, false);
+        })
+    }
 }
 
 const OPENING_GAME_PHASE_SCORE: i32 = 6192;
@@ -1367,57 +1512,86 @@ const ENDING_PIECE_PST_MAP: [[i32; 64]; 12] = [
 opening  -  82    337     365     477   1025   12000
 endgame  -  94    281     297     512   936    12000
 */
-pub fn _get_piece_value(piece: Piece, square: usize, game_phase_score: i32) -> i32 {
-    if (piece as usize) < (Piece::BlackPawn as usize) {
-        let mut piece_value = 0;
 
-        if game_phase_score > OPENING_GAME_PHASE_SCORE {
-            // opening
-            piece_value += OPENING_PIECE_SCORES[piece as usize]
-                + OPENING_PIECE_PST_MAP[piece as usize][square];
-        } else if game_phase_score < ENDGAME_PHASE_SCORE {
-            // endgame
-            piece_value +=
-                ENDING_PIECE_SCORES[piece as usize] + ENDING_PIECE_PST_MAP[piece as usize][square];
-        } else {
-            // middlegame
-            piece_value += (OPENING_PIECE_SCORES[piece as usize] * game_phase_score
-                + ENDING_PIECE_SCORES[piece as usize]
-                    * (OPENING_GAME_PHASE_SCORE - game_phase_score))
-                / OPENING_GAME_PHASE_SCORE;
+pub fn _get_piece_value_bl(piece: usize, square: usize, game_phase_score: i32) -> i32 {
+    let is_opening = (game_phase_score > OPENING_GAME_PHASE_SCORE) as usize;
+    let is_endgame = (game_phase_score < ENDGAME_PHASE_SCORE) as usize;
+    let is_middlegame = 1 - (is_opening | is_endgame);
 
-            piece_value += (OPENING_PIECE_PST_MAP[piece as usize][square] * game_phase_score
-                + ENDING_PIECE_PST_MAP[piece as usize][square]
-                    * (OPENING_GAME_PHASE_SCORE - game_phase_score))
-                / OPENING_GAME_PHASE_SCORE;
-        };
+    let mirror_offset = ((piece) >= (Piece::BlackPawn as usize)) as usize;
+    let adjusted_square =
+        square * (1 - mirror_offset) + MIRROR_SCORE[square] as usize * mirror_offset;
 
-        return piece_value;
-    } else {
-        let mut piece_value = 0;
+    let opening_value = OPENING_PIECE_SCORES[piece] + OPENING_PIECE_PST_MAP[piece][adjusted_square];
 
-        if game_phase_score > OPENING_GAME_PHASE_SCORE {
-            // opening
-            piece_value += OPENING_PIECE_SCORES[piece as usize]
-                + OPENING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize];
-        } else if game_phase_score < ENDGAME_PHASE_SCORE {
-            // endgame
-            piece_value += ENDING_PIECE_SCORES[piece as usize]
-                + ENDING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize];
-        } else {
-            // middlegame
-            piece_value += (OPENING_PIECE_SCORES[piece as usize] * game_phase_score
-                + ENDING_PIECE_SCORES[piece as usize]
-                    * (OPENING_GAME_PHASE_SCORE - game_phase_score))
-                / OPENING_GAME_PHASE_SCORE;
+    let ending_value = ENDING_PIECE_SCORES[piece] + ENDING_PIECE_PST_MAP[piece][adjusted_square];
 
-            piece_value += (OPENING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize]
-                * game_phase_score
-                + ENDING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize]
-                    * (OPENING_GAME_PHASE_SCORE - game_phase_score))
-                / OPENING_GAME_PHASE_SCORE;
-        };
+    let middlegame_value = (OPENING_PIECE_SCORES[piece] * game_phase_score
+        + ENDING_PIECE_SCORES[piece] * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+        / OPENING_GAME_PHASE_SCORE
+        + (OPENING_PIECE_PST_MAP[piece][adjusted_square] * game_phase_score
+            + ENDING_PIECE_PST_MAP[piece][adjusted_square]
+                * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+            / OPENING_GAME_PHASE_SCORE;
 
-        return piece_value;
-    }
+    let piece_value = is_opening as i32 * opening_value
+        + is_endgame as i32 * ending_value
+        + is_middlegame as i32 * middlegame_value;
+
+    return piece_value;
 }
+//
+// pub fn _get_piece_value_bl(piece: Piece, square: usize, game_phase_score: i32) -> i32 {
+//     if (piece as usize) < (Piece::BlackPawn as usize) {
+//         let mut piece_value = 0;
+//
+//         if game_phase_score > OPENING_GAME_PHASE_SCORE {
+//             // opening
+//             piece_value += OPENING_PIECE_SCORES[piece as usize]
+//                 + OPENING_PIECE_PST_MAP[piece as usize][square];
+//         } else if game_phase_score < ENDGAME_PHASE_SCORE {
+//             // endgame
+//             piece_value +=
+//                 ENDING_PIECE_SCORES[piece as usize] + ENDING_PIECE_PST_MAP[piece as usize][square];
+//         } else {
+//             // middlegame
+//             piece_value += (OPENING_PIECE_SCORES[piece as usize] * game_phase_score
+//                 + ENDING_PIECE_SCORES[piece as usize]
+//                     * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+//                 / OPENING_GAME_PHASE_SCORE;
+//
+//             piece_value += (OPENING_PIECE_PST_MAP[piece as usize][square] * game_phase_score
+//                 + ENDING_PIECE_PST_MAP[piece as usize][square]
+//                     * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+//                 / OPENING_GAME_PHASE_SCORE;
+//         };
+//
+//         return piece_value;
+//     } else {
+//         let mut piece_value = 0;
+//
+//         if game_phase_score > OPENING_GAME_PHASE_SCORE {
+//             // opening
+//             piece_value += OPENING_PIECE_SCORES[piece as usize]
+//                 + OPENING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize];
+//         } else if game_phase_score < ENDGAME_PHASE_SCORE {
+//             // endgame
+//             piece_value += ENDING_PIECE_SCORES[piece as usize]
+//                 + ENDING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize];
+//         } else {
+//             // middlegame
+//             piece_value += (OPENING_PIECE_SCORES[piece as usize] * game_phase_score
+//                 + ENDING_PIECE_SCORES[piece as usize]
+//                     * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+//                 / OPENING_GAME_PHASE_SCORE;
+//
+//             piece_value += (OPENING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize]
+//                 * game_phase_score
+//                 + ENDING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize]
+//                     * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+//                 / OPENING_GAME_PHASE_SCORE;
+//         };
+//
+//         return piece_value;
+//     }
+// }

@@ -11,12 +11,12 @@ use crate::{
     chess::{
         self,
         castling_rights::CastlingRights,
-        color::{self, Color},
+        color::Color,
         constants::{RANK_2, RANK_7},
         piece::Piece,
         square::Square,
     },
-    utils::{self, _print_bitboard, clear_bit, get_bit, pop_lsb},
+    utils::{self, clear_bit, get_bit},
 };
 
 pub trait MoveGenerator {
@@ -246,7 +246,7 @@ impl MoveGenerator for Position {
             // quiet pawn moves
             if !only_captures
                 && (target >= Square::A8)
-                && self.get_piece_at_square(target as u8) == Piece::Empty
+                && get_bit(self.occupancies[2], target as u8) == 0
             {
                 // pawn promotion
                 if get_bit(*RANK_7, source as u8) != 0 {
@@ -276,7 +276,7 @@ impl MoveGenerator for Position {
                     // double pawn push
                     if (source >= Square::A2) && (source <= Square::H2) {
                         let target = Square::from((source as u8) - 16);
-                        if self.get_piece_at_square(target as u8) == Piece::Empty {
+                        if get_bit(self.occupancies[2], target as u8) == 0 {
                             moves.push(chess::_move::BitPackedMove::new(
                                 source,
                                 target,
@@ -382,9 +382,8 @@ impl MoveGenerator for Position {
                 let mut m =
                     chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
-                let captured_piece = self.get_piece_at_square(j);
-                if captured_piece != Piece::Empty {
-                    m.set_capture(captured_piece);
+                if get_bit(self.occupancies[2], j) != 0 {
+                    m.set_capture(self.get_piece_at_square(j));
                 }
 
                 moves.push(m);
@@ -422,9 +421,8 @@ impl MoveGenerator for Position {
                 let mut m =
                     chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
-                let captured_piece = self.get_piece_at_square(j);
-                if captured_piece != Piece::Empty {
-                    m.set_capture(captured_piece);
+                if get_bit(self.occupancies[2], j) != 0 {
+                    m.set_capture(self.get_piece_at_square(j));
                 }
 
                 moves.push(m);
@@ -462,8 +460,8 @@ impl MoveGenerator for Position {
                 let mut m =
                     chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
-                let captured_piece = self.get_piece_at_square(j);
-                if captured_piece != Piece::Empty {
+                if get_bit(self.occupancies[2], j) != 0 {
+                    let captured_piece = self.get_piece_at_square(j);
                     m.set_capture(captured_piece);
                 }
 
@@ -502,9 +500,8 @@ impl MoveGenerator for Position {
                 let mut m =
                     chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
-                let captured_piece = self.get_piece_at_square(j);
-                if captured_piece != Piece::Empty {
-                    m.set_capture(captured_piece);
+                if get_bit(self.occupancies[2], j) != 0 {
+                    m.set_capture(self.get_piece_at_square(j));
                 }
 
                 moves.push(m);
@@ -553,9 +550,8 @@ impl MoveGenerator for Position {
                 let mut m =
                     chess::_move::BitPackedMove::new(Square::from(i), Square::from(j), piece);
 
-                let captured_piece = self.get_piece_at_square(j);
-                if captured_piece != Piece::Empty {
-                    m.set_capture(captured_piece);
+                if get_bit(self.occupancies[2], j) != 0 {
+                    m.set_capture(self.get_piece_at_square(j));
                 }
 
                 moves.push(m);
