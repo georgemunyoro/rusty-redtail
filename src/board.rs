@@ -644,8 +644,7 @@ impl Board for Position {
         self.update_occupancies();
 
         // ensure the king is not in check
-        if m.get_piece() != Piece::WhiteKing && m.get_piece() != Piece::BlackKing && !m.is_castle()
-        {
+        if m.get_piece() != Piece::WhiteKing && m.get_piece() != Piece::BlackKing {
             if self.is_in_check() {
                 self.unmake_move();
                 return false;

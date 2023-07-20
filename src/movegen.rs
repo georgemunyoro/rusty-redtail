@@ -574,6 +574,7 @@ impl MoveGenerator for Position {
             if is_king_side_empty && self.castling.can_castle(CastlingRights::WHITE_KINGSIDE) {
                 if !self.is_square_attacked(Square::E1, Color::Black)
                     && !self.is_square_attacked(Square::F1, Color::Black)
+                    && !self.is_square_attacked(Square::G1, Color::Black)
                     && get_bit(self.bitboards[Piece::WhiteRook as usize], Square::H1 as u8) != 0
                 {
                     let mut m =
@@ -588,6 +589,7 @@ impl MoveGenerator for Position {
             if is_queen_side_empty && self.castling.can_castle(CastlingRights::WHITE_QUEENSIDE) {
                 if !self.is_square_attacked(Square::E1, Color::Black)
                     && !self.is_square_attacked(Square::D1, Color::Black)
+                    && !self.is_square_attacked(Square::C1, Color::Black)
                     && get_bit(self.bitboards[Piece::WhiteRook as usize], Square::A1 as u8) != 0
                 {
                     let mut m =
@@ -602,6 +604,7 @@ impl MoveGenerator for Position {
             if is_king_side_empty && self.castling.can_castle(CastlingRights::BLACK_KINGSIDE) {
                 if !self.is_square_attacked(Square::E8, Color::White)
                     && !self.is_square_attacked(Square::F8, Color::White)
+                    && !self.is_square_attacked(Square::G8, Color::White)
                     && get_bit(self.bitboards[Piece::BlackRook as usize], Square::H8 as u8) != 0
                 {
                     let mut m =
@@ -616,6 +619,7 @@ impl MoveGenerator for Position {
             if is_queen_side_empty && self.castling.can_castle(CastlingRights::BLACK_QUEENSIDE) {
                 if !self.is_square_attacked(Square::E8, Color::White)
                     && !self.is_square_attacked(Square::D8, Color::White)
+                    && !self.is_square_attacked(Square::C8, Color::White)
                     && get_bit(self.bitboards[Piece::BlackRook as usize], Square::A8 as u8) != 0
                 {
                     let mut m =
