@@ -18,9 +18,10 @@ use crate::{
     },
     utils::{self, _print_bitboard, clear_bit, get_bit},
 };
+use crate::chess::constants::FULL_BOARD;
 
 pub trait MoveGenerator {
-    fn generate_legal_moves(&mut self) -> Vec<chess::_move::BitPackedMove>;
+    fn generate_legal_moves(&mut self);
     fn generate_moves(&mut self, only_captures: bool) -> Vec<chess::_move::BitPackedMove>;
 
     fn generate_knight_moves(
@@ -67,18 +68,11 @@ pub trait MoveGenerator {
 
     fn get_attacked_squares(&mut self) -> u64;
     fn get_square_attackers(&self, square: Square, color: Color) -> u64;
-    fn append_bb_movelist(
-        &self,
-        source_move_list: u64,
-        target_move_list: &mut Vec<chess::_move::BitPackedMove>,
-        piece: Piece,
-        source: Square,
-    );
+    fn append_bb_movelist(&mut self, source_move_list: u64, piece: Piece, source: Square);
     fn get_between_squares(&self, source: Square, target: Square) -> u64;
 
     fn perft(&mut self, depth: u8) -> u64;
     fn divide_perft(&mut self, depth: u8) -> u64;
-    fn detailed_perft(&mut self, depth: u8) -> PerftResult;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -135,97 +129,293 @@ impl std::ops::Add for PerftResult {
 }
 
 impl MoveGenerator for Position {
-    fn generate_black_pawn_moves(
-        &self,
-        moves: &mut Vec<chess::_move::BitPackedMove>,
-        only_captures: bool,
-    ) {
-        let mut piece_bitboard =
-            self.bitboards[Piece::BlackPawn as usize] & !chess::constants::RANK_1;
+    fn generate_legal_moves(&mut self) {
+        self.move_list_stack[self.depth].clear();
 
-        while piece_bitboard != 0 {
-            let source = Square::from(utils::get_lsb(piece_bitboard));
-            let target = Square::from((source as u8) + 8);
+        let enemy_pieces = self.occupancies[!self.turn as usize];
+        let friendly_pieces = self.occupancies[self.turn as usize];
+        let opponent_color = !self.turn;
 
-            // quiet pawn moves
-            if !only_captures
-                && (target <= Square::H1)
-                && get_bit(self.occupancies[2], target as u8) == 0
-            {
-                // pawn promotion
-                if get_bit(*RANK_2, source as u8) != 0 {
-                    moves.extend(
-                        [
-                            Piece::BlackQueen,
-                            Piece::BlackRook,
-                            Piece::BlackBishop,
-                            Piece::BlackKnight,
-                        ]
-                        .iter()
-                        .map(|promotion| {
-                            let mut m =
-                                chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
-                            m.set_promotion(*promotion);
-                            return m;
-                        }),
-                    );
-                } else {
-                    // single pawn push
-                    moves.push(chess::_move::BitPackedMove::new(
-                        source,
-                        target,
-                        Piece::BlackPawn,
-                    ));
+        let (push_mask, capture_mask): (u64, u64);
+        let (is_in_check, is_in_double_check): (bool, bool);
 
-                    // double pawn push
-                    if get_bit(*RANK_7, source as u8) != 0 {
-                        let target = Square::from((source as u8) + 16);
-                        if get_bit(self.occupancies[2], target as u8) == 0 {
-                            moves.push(chess::_move::BitPackedMove::new(
-                                source,
-                                target,
-                                Piece::BlackPawn,
-                            ));
-                        }
+        let king_square = Square::from(utils::get_lsb(
+            self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)],
+        ));
+
+        // ======================================================================
+        // ============================= King moves =============================
+        // ======================================================================
+        let checkers = self.get_square_attackers(king_square, opponent_color);
+        (is_in_check, is_in_double_check, capture_mask, push_mask) = self.compute_check_masks(king_square, checkers);
+        let attacked_squares_wo_king = self.get_attacked_squares_without_king(opponent_color, king_square);
+
+        let king_moves = self.king_attacks[king_square as usize]
+            & !friendly_pieces
+            & !attacked_squares_wo_king;
+
+        self.append_bb_movelist(
+            king_moves,
+            Piece::from(Piece::WhiteKing as usize + (self.turn as usize * 6)),
+            king_square,
+        );
+
+        if is_in_double_check {
+            return;
+        }
+
+        // ======================================================================
+        // =========================== Castling moves ===========================
+        // ======================================================================
+        if !is_in_check {
+            if self.turn == Color::White {
+                let is_king_side_empty = self.occupancies[2] & WHITE_KING_SIDE_CASTLE == 0;
+
+                if is_king_side_empty
+                    && self.castling.can_castle(CastlingRights::WHITE_KINGSIDE)
+                {
+                    if !self.is_square_attacked(Square::E1, Color::Black)
+                        && !self.is_square_attacked(Square::F1, Color::Black)
+                        && !self.is_square_attacked(Square::G1, Color::Black)
+                        && get_bit(self.bitboards[Piece::WhiteRook as usize], Square::H1 as u8)
+                        != 0
+                    {
+                        let mut m = chess::_move::BitPackedMove::new(
+                            Square::E1,
+                            Square::G1,
+                            Piece::WhiteKing,
+                        );
+                        m.set_castle();
+                        self.move_list_stack[self.depth].push(m);
+                    }
+                }
+
+                let is_queen_side_empty = self.occupancies[2] & WHITE_QUEEN_SIDE_CASTLE == 0;
+
+                if is_queen_side_empty
+                    && self.castling.can_castle(CastlingRights::WHITE_QUEENSIDE)
+                {
+                    if !self.is_square_attacked(Square::E1, Color::Black)
+                        && !self.is_square_attacked(Square::D1, Color::Black)
+                        && !self.is_square_attacked(Square::C1, Color::Black)
+                        && get_bit(self.bitboards[Piece::WhiteRook as usize], Square::A1 as u8)
+                        != 0
+                    {
+                        let mut m = chess::_move::BitPackedMove::new(
+                            Square::E1,
+                            Square::C1,
+                            Piece::WhiteKing,
+                        );
+                        m.set_castle();
+                        self.move_list_stack[self.depth].push(m);
+                    }
+                }
+            } else if self.turn == Color::Black {
+                let is_king_side_empty = (self.occupancies[2] & BLACK_KING_SIDE_CASTLE) == 0;
+
+                if is_king_side_empty
+                    && self.castling.can_castle(CastlingRights::BLACK_KINGSIDE)
+                {
+                    if !self.is_square_attacked(Square::E8, Color::White)
+                        && !self.is_square_attacked(Square::F8, Color::White)
+                        && !self.is_square_attacked(Square::G8, Color::White)
+                        && get_bit(self.bitboards[Piece::BlackRook as usize], Square::H8 as u8)
+                        != 0
+                    {
+                        let mut m = chess::_move::BitPackedMove::new(
+                            Square::E8,
+                            Square::G8,
+                            Piece::BlackKing,
+                        );
+                        m.set_castle();
+                        self.move_list_stack[self.depth].push(m);
+                    }
+                }
+
+                let is_queen_side_empty = (self.occupancies[2] & BLACK_QUEEN_SIDE_CASTLE) == 0;
+
+                if is_queen_side_empty
+                    && self.castling.can_castle(CastlingRights::BLACK_QUEENSIDE)
+                {
+                    if !self.is_square_attacked(Square::E8, Color::White)
+                        && !self.is_square_attacked(Square::D8, Color::White)
+                        && !self.is_square_attacked(Square::C8, Color::White)
+                        && get_bit(self.bitboards[Piece::BlackRook as usize], Square::A8 as u8)
+                        != 0
+                    {
+                        let mut m = chess::_move::BitPackedMove::new(
+                            Square::E8,
+                            Square::C8,
+                            Piece::BlackKing,
+                        );
+                        m.set_castle();
+                        self.move_list_stack[self.depth].push(m);
                     }
                 }
             }
+        }
 
-            // pawn captures
-            let mut attacks = self.pawn_attacks[Color::Black as usize][source as usize]
-                & self.occupancies[Color::White as usize];
-            while attacks != 0 {
-                let target = Square::from(utils::get_lsb(attacks));
+        // ======================================================================
+        // ========================= Pinned piece setup =========================
+        // ======================================================================
 
-                if source >= Square::A2 && source <= Square::H2 {
-                    moves.extend(
-                        [
-                            Piece::BlackQueen,
-                            Piece::BlackRook,
-                            Piece::BlackBishop,
-                            Piece::BlackKnight,
-                        ]
-                        .iter()
-                        .map(|promotion| {
-                            let mut m =
-                                chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
-                            m.set_promotion(*promotion);
-                            m.set_capture(self.get_piece_at_square(target as u8));
-                            return m;
-                        }),
-                    );
-                } else {
-                    let mut m = chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
-                    m.set_capture(self.get_piece_at_square(target as u8));
-                    moves.push(m);
-                }
+        let mut pinned_pieces: u64 = 0;
+        let mut pinned_piece_moves: HashMap<u64, u64> = HashMap::new();
 
-                utils::clear_bit(&mut attacks, target as u8);
+        let opponent_sliders_mask = self.bitboards[Piece::WhiteQueen as usize + (opponent_color as usize * 6)]
+            | self.bitboards[Piece::WhiteRook as usize + (opponent_color as usize * 6)]
+            | self.bitboards[Piece::WhiteBishop as usize + (opponent_color as usize * 6)];
+
+        let mut possible_pinner_squares = self.get_queen_magic_attacks(king_square, 0)
+            & !self.king_attacks[king_square as usize] // Sliding pieces can't be pinners if they are next to the king.
+            & opponent_sliders_mask;
+
+        // For each of the possible pinners, check if there is a single friendly piece between
+        // the sliding piece and the king. If so, then the friendly piece is pinned to the king.
+        while possible_pinner_squares != 0 {
+            let pinner_square = Square::from(utils::pop_lsb(&mut possible_pinner_squares));
+            let pinner_piece = self.get_piece_at_square(pinner_square as u8);
+
+            // First check if it attacks the king when all the friendly pieces are removed.
+
+            let is_potential_rook_pinner = (pinner_piece.is_rook() || pinner_piece.is_queen())
+                && ((self.get_rook_magic_attacks(
+                pinner_square,
+                enemy_pieces | (1u64 << king_square as u8),
+            ) & self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)])
+                != 0);
+
+            let is_potential_bishop_pinner = (pinner_piece.is_bishop()
+                || pinner_piece.is_queen())
+                && ((self.get_bishop_magic_attacks(
+                pinner_square,
+                enemy_pieces | (1u64 << king_square as u8),
+            ) & self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)])
+                != 0);
+
+            if !is_potential_bishop_pinner && !is_potential_rook_pinner {
+                continue;
             }
 
-            // generate enpassant captures
+            // If it does, then check if there is a single friendly piece between the
+            // sliding piece and the king.
+
+            let pieces_between_slider_and_king =
+                self.get_between_squares(king_square, pinner_square);
+            let friendly_pieces_between_slider_and_king =
+                pieces_between_slider_and_king & friendly_pieces;
+
+            if friendly_pieces_between_slider_and_king.count_ones() == 1
+            {
+                pinned_piece_moves.insert(
+                    friendly_pieces_between_slider_and_king,
+                    pieces_between_slider_and_king | (1u64 << pinner_square as u8),
+                );
+                pinned_pieces |= friendly_pieces_between_slider_and_king;
+            }
+        }
+
+        // ======================================================================
+        // ============================== Knight moves ==========================
+        // ======================================================================
+
+        let mut movable_knights = self.bitboards
+            [Piece::WhiteKnight as usize + (self.turn as usize * 6)]
+            & !pinned_pieces;
+
+        while movable_knights != 0 {
+            let source = Square::from(utils::pop_lsb(&mut movable_knights));
+            let knight_moves = self.knight_attacks[source as usize]
+                & !friendly_pieces
+                & (push_mask | capture_mask);
+
+            self.append_bb_movelist(
+                knight_moves,
+                Piece::from(Piece::WhiteKnight as usize + (self.turn as usize * 6)),
+                source,
+            );
+        }
+
+        // ======================================================================
+        // ============================== Bishop moves ==========================
+        // ======================================================================
+        let mut bishops =
+            self.bitboards[Piece::WhiteBishop as usize + (self.turn as usize * 6)];
+
+        while bishops != 0 {
+            let source = Square::from(utils::pop_lsb(&mut bishops));
+            let mut bishop_moves = self
+                .get_bishop_magic_attacks(source, self.get_both_occupancy())
+                & !friendly_pieces
+                & (push_mask | capture_mask);
+
+            if pinned_pieces & (1u64 << source as u8) != 0 {
+                bishop_moves &= pinned_piece_moves[&(1u64 << source as u8)];
+            }
+
+            self.append_bb_movelist(
+                bishop_moves,
+                Piece::from(Piece::WhiteBishop as usize + (self.turn as usize * 6)),
+                source,
+            );
+        }
+
+        // ======================================================================
+        // ============================== Rook moves ============================
+        // ======================================================================
+        let mut rooks = self.bitboards[Piece::WhiteRook as usize + (self.turn as usize * 6)];
+
+        while rooks != 0 {
+            let source = Square::from(utils::pop_lsb(&mut rooks));
+            let mut rook_moves = self.get_rook_magic_attacks(source, self.get_both_occupancy())
+                & !friendly_pieces
+                & (push_mask | capture_mask);
+
+            if pinned_pieces & (1u64 << source as u8) != 0 {
+                rook_moves &= pinned_piece_moves[&(1u64 << source as u8)];
+            }
+
+            self.append_bb_movelist(
+                rook_moves,
+                Piece::from(Piece::WhiteRook as usize + (self.turn as usize * 6)),
+                source,
+            );
+        }
+
+        // ======================================================================
+        // ============================== Queen moves ===========================
+        // ======================================================================
+        let mut queens = self.bitboards[Piece::WhiteQueen as usize + (self.turn as usize * 6)];
+
+        while queens != 0 {
+            let source = Square::from(utils::pop_lsb(&mut queens));
+            let mut queen_moves = self
+                .get_queen_magic_attacks(source, self.get_both_occupancy())
+                & !friendly_pieces
+                & (push_mask | capture_mask);
+
+            if pinned_pieces & (1u64 << source as u8) != 0 {
+                queen_moves &= pinned_piece_moves[&(1u64 << source as u8)];
+            }
+
+            self.append_bb_movelist(
+                queen_moves,
+                Piece::from(Piece::WhiteQueen as usize + (self.turn as usize * 6)),
+                source,
+            );
+        }
+
+        // ======================================================================
+        // ============================== Pawn moves ============================
+        // ======================================================================
+        let mut pawns = self.bitboards[Piece::WhitePawn as usize + (self.turn as usize * 6)];
+
+        while pawns != 0 {
+            let source = Square::from(utils::pop_lsb(&mut pawns));
+
+            // Enpassant captures
             if let Some(enpassant_square) = self.enpassant {
-                let enpassant_attacks = self.pawn_attacks[Color::Black as usize][source as usize]
+                let enpassant_attacks = self.pawn_attacks[self.turn as usize][source as usize]
                     & (1u64 << enpassant_square as u8);
 
                 if enpassant_attacks != 0 {
@@ -233,139 +423,80 @@ impl MoveGenerator for Position {
                     let mut m = chess::_move::BitPackedMove::new(
                         source,
                         Square::from(target_enpassant),
-                        Piece::BlackPawn,
+                        Piece::from(Piece::WhitePawn as usize + (self.turn as usize * 6)),
                     );
                     m.set_enpassant();
-                    moves.push(m);
+                    self.move_list_stack[self.depth].push(m);
                 }
             }
 
-            utils::pop_lsb(&mut piece_bitboard);
+            // Captures
+            let mut pawn_captures = self.pawn_attacks[self.turn as usize][source as usize]
+                & enemy_pieces
+                & (push_mask | capture_mask);
+
+            if pinned_pieces & (1u64 << source as u8) != 0 {
+                pawn_captures &= pinned_piece_moves[&(1u64 << source as u8)];
+            }
+
+            self.append_bb_movelist(
+                pawn_captures,
+                Piece::from(Piece::WhitePawn as usize + (self.turn as usize * 6)),
+                source,
+            );
+
+            // Pushes
+            if self.turn == Color::White {
+                let single_push = (1u64 << (source as u8 - 8))
+                    & !(enemy_pieces | friendly_pieces)
+                    & (push_mask);
+
+                let double_push =
+                    (((1u64 << (source as u8 - 8)) & !(enemy_pieces | friendly_pieces)) >> 8)
+                        & (push_mask)
+                        & !(enemy_pieces | friendly_pieces)
+                        & RANK_4;
+
+                let mut pawn_pushes = single_push | double_push;
+
+                if pinned_pieces & (1u64 << source as u8) != 0 {
+                    pawn_pushes &= pinned_piece_moves[&(1u64 << source as u8)];
+                }
+
+                self.append_bb_movelist(pawn_pushes, Piece::WhitePawn, source);
+            } else {
+                let single_push = (1u64 << (source as u8 + 8))
+                    & !(enemy_pieces | friendly_pieces)
+                    & (push_mask);
+
+                let double_push =
+                    (((1u64 << (source as u8 + 8)) & !(enemy_pieces | friendly_pieces)) << 8)
+                        & (push_mask)
+                        & !(enemy_pieces | friendly_pieces)
+                        & RANK_5;
+
+                let mut pawn_pushes = single_push | double_push;
+
+                if pinned_pieces & (1u64 << source as u8) != 0 {
+                    pawn_pushes &= pinned_piece_moves[&(1u64 << source as u8)];
+                }
+
+                self.append_bb_movelist(pawn_pushes, Piece::BlackPawn, source);
+            }
         }
     }
 
-    fn generate_white_pawn_moves(
-        &self,
-        moves: &mut Vec<chess::_move::BitPackedMove>,
-        only_captures: bool,
-    ) {
-        let mut piece_bitboard =
-            self.bitboards[Piece::WhitePawn as usize] & !chess::constants::RANK_8;
+    fn generate_moves(&mut self, only_captures: bool) -> Vec<chess::_move::BitPackedMove> {
+        let mut moves = Vec::with_capacity(256);
 
-        while piece_bitboard != 0 {
-            let source = Square::from(utils::get_lsb(piece_bitboard));
-            let target = Square::from((source as usize) - 8);
+        self.generate_pawn_moves(&mut moves, only_captures);
+        self.generate_knight_moves(&mut moves, only_captures);
+        self.generate_bishop_moves(&mut moves, only_captures);
+        self.generate_rook_moves(&mut moves, only_captures);
+        self.generate_queen_moves(&mut moves, only_captures);
+        self.generate_king_moves(&mut moves, only_captures);
 
-            // quiet pawn moves
-            if !only_captures
-                && (target >= Square::A8)
-                && get_bit(self.occupancies[2], target as u8) == 0
-            {
-                // pawn promotion
-                if get_bit(*RANK_7, source as u8) != 0 {
-                    moves.extend(
-                        [
-                            Piece::WhiteQueen,
-                            Piece::WhiteRook,
-                            Piece::WhiteBishop,
-                            Piece::WhiteKnight,
-                        ]
-                        .iter()
-                        .map(|promotion| {
-                            let mut m =
-                                chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
-                            m.set_promotion(*promotion);
-                            return m;
-                        }),
-                    );
-                } else {
-                    // single pawn push
-                    moves.push(chess::_move::BitPackedMove::new(
-                        source,
-                        target,
-                        Piece::WhitePawn,
-                    ));
-
-                    // double pawn push
-                    if (source >= Square::A2) && (source <= Square::H2) {
-                        let target = Square::from((source as u8) - 16);
-                        if get_bit(self.occupancies[2], target as u8) == 0 {
-                            moves.push(chess::_move::BitPackedMove::new(
-                                source,
-                                target,
-                                Piece::WhitePawn,
-                            ));
-                        }
-                    }
-                }
-            }
-
-            // pawn captures
-            let mut attacks = self.pawn_attacks[Color::White as usize][source as usize]
-                & self.occupancies[Color::Black as usize];
-            while attacks != 0 {
-                let target = Square::from(utils::get_lsb(attacks));
-
-                if get_bit(*RANK_7, source as u8) != 0 {
-                    moves.extend(
-                        [
-                            Piece::WhiteQueen,
-                            Piece::WhiteRook,
-                            Piece::WhiteBishop,
-                            Piece::WhiteKnight,
-                        ]
-                        .iter()
-                        .map(|promotion| {
-                            let mut m =
-                                chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
-                            m.set_promotion(*promotion);
-                            m.set_capture(self.get_piece_at_square(target as u8));
-                            return m;
-                        }),
-                    );
-                } else {
-                    let mut m = chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
-                    m.set_capture(self.get_piece_at_square(target as u8));
-                    moves.push(m);
-                }
-
-                utils::clear_bit(&mut attacks, target as u8);
-            }
-
-            // generate enpassant captures
-            if let Some(enpassant_square) = self.enpassant {
-                let enpassant_attacks = self.pawn_attacks[Color::White as usize][source as usize]
-                    & (1u64 << enpassant_square as u8);
-
-                if enpassant_attacks != 0 {
-                    let target_enpassant = utils::get_lsb(enpassant_attacks);
-                    let mut m = chess::_move::BitPackedMove::new(
-                        source,
-                        Square::from(target_enpassant),
-                        Piece::WhitePawn,
-                    );
-                    m.set_enpassant();
-                    moves.push(m);
-                }
-            }
-
-            utils::pop_lsb(&mut piece_bitboard);
-        }
-    }
-
-    fn generate_pawn_moves(
-        &self,
-        move_list: &mut Vec<chess::_move::BitPackedMove>,
-        only_captures: bool,
-    ) {
-        // white pawn moves
-        if self.turn == Color::White {
-            self.generate_white_pawn_moves(move_list, only_captures)
-        }
-        // black pawn moves
-        else if self.turn == Color::Black {
-            self.generate_black_pawn_moves(move_list, only_captures)
-        }
+        return moves;
     }
 
     fn generate_knight_moves(
@@ -644,17 +775,237 @@ impl MoveGenerator for Position {
         }
     }
 
-    fn generate_moves(&mut self, only_captures: bool) -> Vec<chess::_move::BitPackedMove> {
-        let mut moves = Vec::with_capacity(256);
+    fn generate_pawn_moves(
+        &self,
+        move_list: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
+        // white pawn moves
+        if self.turn == Color::White {
+            self.generate_white_pawn_moves(move_list, only_captures)
+        }
+        // black pawn moves
+        else if self.turn == Color::Black {
+            self.generate_black_pawn_moves(move_list, only_captures)
+        }
+    }
 
-        self.generate_pawn_moves(&mut moves, only_captures);
-        self.generate_knight_moves(&mut moves, only_captures);
-        self.generate_bishop_moves(&mut moves, only_captures);
-        self.generate_rook_moves(&mut moves, only_captures);
-        self.generate_queen_moves(&mut moves, only_captures);
-        self.generate_king_moves(&mut moves, only_captures);
+    fn generate_white_pawn_moves(
+        &self,
+        moves: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
+        let mut piece_bitboard =
+            self.bitboards[Piece::WhitePawn as usize] & !chess::constants::RANK_8;
 
-        return moves;
+        while piece_bitboard != 0 {
+            let source = Square::from(utils::get_lsb(piece_bitboard));
+            let target = Square::from((source as usize) - 8);
+
+            // quiet pawn moves
+            if !only_captures
+                && (target >= Square::A8)
+                && get_bit(self.occupancies[2], target as u8) == 0
+            {
+                // pawn promotion
+                if get_bit(*RANK_7, source as u8) != 0 {
+                    moves.extend(
+                        [
+                            Piece::WhiteQueen,
+                            Piece::WhiteRook,
+                            Piece::WhiteBishop,
+                            Piece::WhiteKnight,
+                        ]
+                            .iter()
+                            .map(|promotion| {
+                                let mut m =
+                                    chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
+                                m.set_promotion(*promotion);
+                                return m;
+                            }),
+                    );
+                } else {
+                    // single pawn push
+                    moves.push(chess::_move::BitPackedMove::new(
+                        source,
+                        target,
+                        Piece::WhitePawn,
+                    ));
+
+                    // double pawn push
+                    if (source >= Square::A2) && (source <= Square::H2) {
+                        let target = Square::from((source as u8) - 16);
+                        if get_bit(self.occupancies[2], target as u8) == 0 {
+                            moves.push(chess::_move::BitPackedMove::new(
+                                source,
+                                target,
+                                Piece::WhitePawn,
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // pawn captures
+            let mut attacks = self.pawn_attacks[Color::White as usize][source as usize]
+                & self.occupancies[Color::Black as usize];
+            while attacks != 0 {
+                let target = Square::from(utils::get_lsb(attacks));
+
+                if get_bit(*RANK_7, source as u8) != 0 {
+                    moves.extend(
+                        [
+                            Piece::WhiteQueen,
+                            Piece::WhiteRook,
+                            Piece::WhiteBishop,
+                            Piece::WhiteKnight,
+                        ]
+                            .iter()
+                            .map(|promotion| {
+                                let mut m =
+                                    chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
+                                m.set_promotion(*promotion);
+                                m.set_capture(self.get_piece_at_square(target as u8));
+                                return m;
+                            }),
+                    );
+                } else {
+                    let mut m = chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
+                    m.set_capture(self.get_piece_at_square(target as u8));
+                    moves.push(m);
+                }
+
+                utils::clear_bit(&mut attacks, target as u8);
+            }
+
+            // generate enpassant captures
+            if let Some(enpassant_square) = self.enpassant {
+                let enpassant_attacks = self.pawn_attacks[Color::White as usize][source as usize]
+                    & (1u64 << enpassant_square as u8);
+
+                if enpassant_attacks != 0 {
+                    let target_enpassant = utils::get_lsb(enpassant_attacks);
+                    let mut m = chess::_move::BitPackedMove::new(
+                        source,
+                        Square::from(target_enpassant),
+                        Piece::WhitePawn,
+                    );
+                    m.set_enpassant();
+                    moves.push(m);
+                }
+            }
+
+            utils::pop_lsb(&mut piece_bitboard);
+        }
+    }
+
+    fn generate_black_pawn_moves(
+        &self,
+        moves: &mut Vec<chess::_move::BitPackedMove>,
+        only_captures: bool,
+    ) {
+        let mut piece_bitboard =
+            self.bitboards[Piece::BlackPawn as usize] & !chess::constants::RANK_1;
+
+        while piece_bitboard != 0 {
+            let source = Square::from(utils::get_lsb(piece_bitboard));
+            let target = Square::from((source as u8) + 8);
+
+            // quiet pawn moves
+            if !only_captures
+                && (target <= Square::H1)
+                && get_bit(self.occupancies[2], target as u8) == 0
+            {
+                // pawn promotion
+                if get_bit(*RANK_2, source as u8) != 0 {
+                    moves.extend(
+                        [
+                            Piece::BlackQueen,
+                            Piece::BlackRook,
+                            Piece::BlackBishop,
+                            Piece::BlackKnight,
+                        ]
+                            .iter()
+                            .map(|promotion| {
+                                let mut m =
+                                    chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
+                                m.set_promotion(*promotion);
+                                return m;
+                            }),
+                    );
+                } else {
+                    // single pawn push
+                    moves.push(chess::_move::BitPackedMove::new(
+                        source,
+                        target,
+                        Piece::BlackPawn,
+                    ));
+
+                    // double pawn push
+                    if get_bit(*RANK_7, source as u8) != 0 {
+                        let target = Square::from((source as u8) + 16);
+                        if get_bit(self.occupancies[2], target as u8) == 0 {
+                            moves.push(chess::_move::BitPackedMove::new(
+                                source,
+                                target,
+                                Piece::BlackPawn,
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // pawn captures
+            let mut attacks = self.pawn_attacks[Color::Black as usize][source as usize]
+                & self.occupancies[Color::White as usize];
+            while attacks != 0 {
+                let target = Square::from(utils::get_lsb(attacks));
+
+                if source >= Square::A2 && source <= Square::H2 {
+                    moves.extend(
+                        [
+                            Piece::BlackQueen,
+                            Piece::BlackRook,
+                            Piece::BlackBishop,
+                            Piece::BlackKnight,
+                        ]
+                            .iter()
+                            .map(|promotion| {
+                                let mut m =
+                                    chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
+                                m.set_promotion(*promotion);
+                                m.set_capture(self.get_piece_at_square(target as u8));
+                                return m;
+                            }),
+                    );
+                } else {
+                    let mut m = chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
+                    m.set_capture(self.get_piece_at_square(target as u8));
+                    moves.push(m);
+                }
+
+                utils::clear_bit(&mut attacks, target as u8);
+            }
+
+            // generate enpassant captures
+            if let Some(enpassant_square) = self.enpassant {
+                let enpassant_attacks = self.pawn_attacks[Color::Black as usize][source as usize]
+                    & (1u64 << enpassant_square as u8);
+
+                if enpassant_attacks != 0 {
+                    let target_enpassant = utils::get_lsb(enpassant_attacks);
+                    let mut m = chess::_move::BitPackedMove::new(
+                        source,
+                        Square::from(target_enpassant),
+                        Piece::BlackPawn,
+                    );
+                    m.set_enpassant();
+                    moves.push(m);
+                }
+            }
+
+            utils::pop_lsb(&mut piece_bitboard);
+        }
     }
 
     fn get_attacked_squares(&mut self) -> u64 {
@@ -681,57 +1032,56 @@ impl MoveGenerator for Position {
         // Diagonal slider attackers
         attackers |= self.get_bishop_magic_attacks(square, self.get_both_occupancy())
             & (self.bitboards[Piece::WhiteBishop as usize + (color as usize * 6)]
-                | self.bitboards[Piece::WhiteQueen as usize + (color as usize * 6)]);
+            | self.bitboards[Piece::WhiteQueen as usize + (color as usize * 6)]);
 
         // Orthogonal slider attackers
         attackers |= self.get_rook_magic_attacks(square, self.get_both_occupancy())
             & (self.bitboards[Piece::WhiteRook as usize + (color as usize * 6)]
-                | self.bitboards[Piece::WhiteQueen as usize + (color as usize * 6)]);
+            | self.bitboards[Piece::WhiteQueen as usize + (color as usize * 6)]);
 
         return attackers;
     }
 
-    fn append_bb_movelist(
-        &self,
-        source_move_list: u64,
-        target_move_list: &mut Vec<chess::_move::BitPackedMove>,
-        piece: Piece,
-        source: Square,
-    ) {
+    fn append_bb_movelist(&mut self, source_move_list: u64, piece: Piece, source: Square) {
+        static WHITE_PROMOTIONS: [Piece; 4] = [
+            Piece::WhiteQueen,
+            Piece::WhiteRook,
+            Piece::WhiteBishop,
+            Piece::WhiteKnight,
+        ];
+
+        static BLACK_PROMOTIONS: [Piece; 4] = [
+            Piece::BlackQueen,
+            Piece::BlackRook,
+            Piece::BlackBishop,
+            Piece::BlackKnight,
+        ];
+
         let mut move_list = source_move_list;
         while move_list != 0 {
             let target = Square::from(utils::pop_lsb(&mut move_list));
             let mut m = chess::_move::BitPackedMove::new(source, target, piece);
-            if get_bit(self.occupancies[2], target as u8) != 0 {
+
+            if get_bit(self.get_both_occupancy(), target as u8) != 0 {
                 m.set_capture(self.get_piece_at_square(target as u8));
             }
 
-            if (piece == Piece::WhitePawn && target <= Square::H7)
-                || (piece == Piece::BlackPawn && target >= Square::A2)
-            {
-                for promotion in if piece.is_white() {
-                    [
-                        Piece::WhiteQueen,
-                        Piece::WhiteRook,
-                        Piece::WhiteBishop,
-                        Piece::WhiteKnight,
-                    ]
-                } else {
-                    [
-                        Piece::BlackQueen,
-                        Piece::BlackRook,
-                        Piece::BlackBishop,
-                        Piece::BlackKnight,
-                    ]
+            match piece {
+                Piece::WhitePawn if target <= Square::H8 => {
+                    for &promotion in &WHITE_PROMOTIONS {
+                        let mut promotion_move = m;
+                        promotion_move.set_promotion(promotion);
+                        self.move_list_stack[self.depth].push(promotion_move);
+                    }
                 }
-                .iter()
-                {
-                    let mut m = m;
-                    m.set_promotion(*promotion);
-                    target_move_list.push(m);
+                Piece::BlackPawn if target >= Square::A1 => {
+                    for &promotion in &BLACK_PROMOTIONS {
+                        let mut promotion_move = m;
+                        promotion_move.set_promotion(promotion);
+                        self.move_list_stack[self.depth].push(promotion_move);
+                    }
                 }
-            } else {
-                target_move_list.push(m);
+                _ => self.move_list_stack[self.depth].push(m)
             }
         }
     }
@@ -782,395 +1132,20 @@ impl MoveGenerator for Position {
         return between_squares;
     }
 
-    fn generate_legal_moves(&mut self) -> Vec<chess::_move::BitPackedMove> {
-        let mut moves = Vec::with_capacity(256);
-
-        let enemy_pieces = self.occupancies[!self.turn as usize];
-        let friendly_pieces = self.occupancies[self.turn as usize];
-
-        let attacked_squares: u64 = self.get_attacked_squares();
-
-        // println!("\nAttacked squares:");
-        // _print_bitboard(attacked_squares);
-
-        let mut push_mask: u64 = 0xFFFF_FFFF_FFFF_FFFF;
-        let mut capture_mask: u64 = 0xFFFF_FFFF_FFFF_FFFF;
-
-        let is_in_check: bool;
-        let is_in_double_check: bool;
-
-        let king_square = Square::from(utils::get_lsb(
-            self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)],
-        ));
-
-        // ======================================================================
-        // ============================= King moves =============================
-        // ======================================================================
-        {
-            // Get all the "danger squares", i.e. squares that aren't attacked by the enemy
-            // presently, but will be attacked if the king moves to that square. e.g. the
-            // squares behind a king attacked by a rook, bishop, or queen.
-            let mut attacked_squares_wo_king: u64 = 0;
-            let occupancy_wo_king = self.get_both_occupancy() ^ (1u64 << king_square as u8);
-            for square in SQUARE_ITER {
-                if self.is_square_attacked_w_occupancy(square, !self.turn, occupancy_wo_king) {
-                    attacked_squares_wo_king |= 1u64 << square as u8;
-                }
-            }
-
-            let checkers = self.get_square_attackers(king_square, !self.turn);
-            is_in_check = checkers != 0;
-            is_in_double_check = checkers.count_ones() > 1;
-
-            if is_in_check && !is_in_double_check {
-                capture_mask = checkers;
-
-                let checker_square = Square::from(utils::get_lsb(checkers));
-
-                if self.get_piece_at_square(checker_square as u8).is_slider() {
-                    // println!("\nBetween squares:");
-                    // _print_bitboard(self.get_between_squares(king_square, checker_square));
-                    push_mask = self.get_between_squares(king_square, checker_square);
-                } else {
-                    push_mask = 0;
-                }
-            }
-
-            // TODO: enpassant
-
-            // println!("\nCheckers:");
-            // _print_bitboard(checkers);
-
-            // println!("\nDanger squares:");
-            // _print_bitboard(attacked_squares_wo_king);
-
-            let king_moves = self.king_attacks[king_square as usize]
-                & !friendly_pieces
-                & !attacked_squares_wo_king;
-
-            // println!("\nKing moves:");
-            // _print_bitboard(king_moves);
-
-            self.append_bb_movelist(
-                king_moves,
-                &mut moves,
-                Piece::from(Piece::WhiteKing as usize + (self.turn as usize * 6)),
-                king_square,
-            );
-
-            if is_in_double_check {
-                return moves;
-            }
-        }
-
-        // ======================================================================
-        // =========================== Castling moves ===========================
-        // ======================================================================
-        {
-            if !is_in_check {
-                self.generate_castle_moves(&mut moves);
-            }
-        }
-
-        // println!("\nCapture mask:");
-        // _print_bitboard(capture_mask);
-
-        // println!("\nPush mask:");
-        // _print_bitboard(push_mask);
-
-        // ======================================================================
-        // ========================= Pinned piece setup =========================
-        // ======================================================================
-
-        let mut pinned_pieces: u64 = 0;
-        let mut pinned_piece_moves: HashMap<u64, u64> = HashMap::new();
-
-        {
-            // Exclude the squares next to the king, since a sliding piece can't pin a piece to the king if it's next to the king.
-            let mut possible_pinner_squares = self.get_queen_magic_attacks(king_square, 0)
-                & !self.king_attacks[king_square as usize]
-                & (self.bitboards[Piece::WhiteQueen as usize + (!self.turn as usize * 6)]
-                    | self.bitboards[Piece::WhiteRook as usize + (!self.turn as usize * 6)]
-                    | self.bitboards[Piece::WhiteBishop as usize + (!self.turn as usize * 6)]);
-
-            // println!("\nPossible pinner squares:");
-            // _print_bitboard(possible_pinner_squares);
-
-            // For each of the possible pinner, check if there is a single friendly piece between
-            // the sliding piece and the king. If so, then the friendly piece is pinned to the king.
-            while possible_pinner_squares != 0 {
-                let pinner_square = Square::from(utils::pop_lsb(&mut possible_pinner_squares));
-                let pinner_piece = self.get_piece_at_square(pinner_square as u8);
-
-                // First check if it attacks the king when all the friendly pieces are removed.
-
-                let is_potential_rook_pinner = (pinner_piece.is_rook() || pinner_piece.is_queen())
-                    && ((self.get_rook_magic_attacks(
-                        pinner_square,
-                        enemy_pieces | (1u64 << king_square as u8),
-                    ) & self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)])
-                        != 0);
-
-                let is_potential_bishop_pinner = (pinner_piece.is_bishop()
-                    || pinner_piece.is_queen())
-                    && ((self.get_bishop_magic_attacks(
-                        pinner_square,
-                        enemy_pieces | (1u64 << king_square as u8),
-                    ) & self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)])
-                        != 0);
-
-                if !is_potential_bishop_pinner && !is_potential_rook_pinner {
-                    continue;
-                }
-
-                // If it does, then check if there is a single friendly piece between the
-                // sliding piece and the king.
-                let enemy_pieces_between_slider_and_king =
-                    self.get_between_squares(king_square, pinner_square) & enemy_pieces;
-
-                let friendly_pieces_between_slider_and_king =
-                    self.get_between_squares(king_square, pinner_square) & friendly_pieces;
-
-                if enemy_pieces_between_slider_and_king.count_ones() == 0
-                    && friendly_pieces_between_slider_and_king.count_ones() == 1
-                {
-                    pinned_piece_moves.insert(
-                        friendly_pieces_between_slider_and_king,
-                        self.get_between_squares(king_square, pinner_square)
-                            | (1u64 << pinner_square as u8),
-                    );
-                    pinned_pieces |= friendly_pieces_between_slider_and_king;
-                }
-            }
-
-            // println!("\nPinned pieces:");
-            // _print_bitboard(pinned_pieces);
-        }
-
-        // ======================================================================
-        // ============================== Knight moves ==========================
-        // ======================================================================
-
-        {
-            let mut movable_knights = self.bitboards
-                [Piece::WhiteKnight as usize + (self.turn as usize * 6)]
-                & !pinned_pieces;
-
-            // println!("\nMovable knights:");
-            // _print_bitboard(movable_knights);
-
-            while movable_knights != 0 {
-                let source = Square::from(utils::pop_lsb(&mut movable_knights));
-                let knight_moves = self.knight_attacks[source as usize]
-                    & !friendly_pieces
-                    & (push_mask | capture_mask);
-
-                // println!("\nKnight moves:");
-                // _print_bitboard(knight_moves);
-
-                self.append_bb_movelist(
-                    knight_moves,
-                    &mut moves,
-                    Piece::from(Piece::WhiteKnight as usize + (self.turn as usize * 6)),
-                    source,
-                );
-            }
-        }
-
-        // ======================================================================
-        // ============================== Bishop moves ==========================
-        // ======================================================================
-        {
-            let mut bishops =
-                self.bitboards[Piece::WhiteBishop as usize + (self.turn as usize * 6)];
-
-            while bishops != 0 {
-                let source = Square::from(utils::pop_lsb(&mut bishops));
-                let mut bishop_moves = self
-                    .get_bishop_magic_attacks(source, self.get_both_occupancy())
-                    & !friendly_pieces
-                    & (push_mask | capture_mask);
-
-                if pinned_pieces & (1u64 << source as u8) != 0 {
-                    bishop_moves &= pinned_piece_moves[&(1u64 << source as u8)];
-                }
-
-                // println!("\nBishop moves:");
-                // _print_bitboard(bishop_moves);
-
-                self.append_bb_movelist(
-                    bishop_moves,
-                    &mut moves,
-                    Piece::from(Piece::WhiteBishop as usize + (self.turn as usize * 6)),
-                    source,
-                );
-            }
-        }
-
-        // ======================================================================
-        // ============================== Rook moves ============================
-        // ======================================================================
-        {
-            let mut rooks = self.bitboards[Piece::WhiteRook as usize + (self.turn as usize * 6)];
-
-            while rooks != 0 {
-                let source = Square::from(utils::pop_lsb(&mut rooks));
-                let mut rook_moves = self.get_rook_magic_attacks(source, self.get_both_occupancy())
-                    & !friendly_pieces
-                    & (push_mask | capture_mask);
-
-                if pinned_pieces & (1u64 << source as u8) != 0 {
-                    rook_moves &= pinned_piece_moves[&(1u64 << source as u8)];
-                }
-
-                // println!("\nRook moves:");
-                // _print_bitboard(rook_moves);
-
-                self.append_bb_movelist(
-                    rook_moves,
-                    &mut moves,
-                    Piece::from(Piece::WhiteRook as usize + (self.turn as usize * 6)),
-                    source,
-                );
-            }
-        }
-
-        // ======================================================================
-        // ============================== Queen moves ===========================
-        // ======================================================================
-        {
-            let mut queens = self.bitboards[Piece::WhiteQueen as usize + (self.turn as usize * 6)];
-
-            while queens != 0 {
-                let source = Square::from(utils::pop_lsb(&mut queens));
-                let mut queen_moves = self
-                    .get_queen_magic_attacks(source, self.get_both_occupancy())
-                    & !friendly_pieces
-                    & (push_mask | capture_mask);
-
-                if pinned_pieces & (1u64 << source as u8) != 0 {
-                    queen_moves &= pinned_piece_moves[&(1u64 << source as u8)];
-                }
-
-                // println!("\nQueen moves:");
-                // _print_bitboard(queen_moves);
-
-                self.append_bb_movelist(
-                    queen_moves,
-                    &mut moves,
-                    Piece::from(Piece::WhiteQueen as usize + (self.turn as usize * 6)),
-                    source,
-                );
-            }
-        }
-
-        // ======================================================================
-        // ============================== Pawn moves ============================
-        // ======================================================================
-        {
-            let mut pawns = self.bitboards[Piece::WhitePawn as usize + (self.turn as usize * 6)];
-
-            while pawns != 0 {
-                let source = Square::from(utils::pop_lsb(&mut pawns));
-
-                // Enpassant captures
-                if let Some(enpassant_square) = self.enpassant {
-                    let enpassant_attacks = self.pawn_attacks[self.turn as usize][source as usize]
-                        & (1u64 << enpassant_square as u8);
-
-                    if enpassant_attacks != 0 {
-                        let target_enpassant = utils::get_lsb(enpassant_attacks);
-                        let mut m = chess::_move::BitPackedMove::new(
-                            source,
-                            Square::from(target_enpassant),
-                            Piece::from(Piece::WhitePawn as usize + (self.turn as usize * 6)),
-                        );
-                        m.set_enpassant();
-                        moves.push(m);
-                    }
-                }
-
-                // Captures
-                let mut pawn_captures = self.pawn_attacks[self.turn as usize][source as usize]
-                    & enemy_pieces
-                    & (push_mask | capture_mask);
-
-                if pinned_pieces & (1u64 << source as u8) != 0 {
-                    pawn_captures &= pinned_piece_moves[&(1u64 << source as u8)];
-                }
-
-                // println!("\nPawn captures:");
-                // _print_bitboard(pawn_captures);
-
-                self.append_bb_movelist(
-                    pawn_captures,
-                    &mut moves,
-                    Piece::from(Piece::WhitePawn as usize + (self.turn as usize * 6)),
-                    source,
-                );
-
-                // Pushes
-                if self.turn == Color::White {
-                    let single_push = (1u64 << (source as u8 - 8))
-                        & !(enemy_pieces | friendly_pieces)
-                        & (push_mask);
-
-                    let double_push =
-                        (((1u64 << (source as u8 - 8)) & !(enemy_pieces | friendly_pieces)) >> 8)
-                            & (push_mask)
-                            & !(enemy_pieces | friendly_pieces)
-                            & RANK_4;
-
-                    let mut pawn_pushes = single_push | double_push;
-
-                    if pinned_pieces & (1u64 << source as u8) != 0 {
-                        pawn_pushes &= pinned_piece_moves[&(1u64 << source as u8)];
-                    }
-
-                    // println!("\nPawn pushes:");
-                    // _print_bitboard(pawn_pushes);
-
-                    self.append_bb_movelist(pawn_pushes, &mut moves, Piece::WhitePawn, source);
-                } else {
-                    let single_push = (1u64 << (source as u8 + 8))
-                        & !(enemy_pieces | friendly_pieces)
-                        & (push_mask);
-
-                    let double_push =
-                        (((1u64 << (source as u8 + 8)) & !(enemy_pieces | friendly_pieces)) << 8)
-                            & (push_mask)
-                            & !(enemy_pieces | friendly_pieces)
-                            & RANK_5;
-
-                    let mut pawn_pushes = single_push | double_push;
-
-                    if pinned_pieces & (1u64 << source as u8) != 0 {
-                        pawn_pushes &= pinned_piece_moves[&(1u64 << source as u8)];
-                    }
-
-                    // println!("\nPawn pushes:");
-                    // _print_bitboard(pawn_pushes);
-
-                    self.append_bb_movelist(pawn_pushes, &mut moves, Piece::BlackPawn, source);
-                }
-            }
-        }
-
-        return moves;
-    }
-
     fn perft(&mut self, depth: u8) -> u64 {
         if depth == 0 {
             return 1;
         }
 
         let mut nodes = 0;
-        let moves = self.generate_legal_moves();
 
-        for m in moves {
-            let is_legal_move = self.make_move(m, false);
+        self.generate_legal_moves();
+        let num_moves = self.move_list_stack[self.depth].len();
 
-            if !is_legal_move {
+        for i in 0..num_moves {
+            let m = self.move_list_stack[self.depth][i];
+
+            if !self.make_move(&m, false) {
                 if m.is_enpassant() {
                     continue;
                 }
@@ -1186,14 +1161,25 @@ impl MoveGenerator for Position {
     }
 
     fn divide_perft(&mut self, depth: u8) -> u64 {
-        let moves = self.generate_legal_moves();
-        println!("{}: {}", depth, moves.len());
+        if depth == 0 {
+            return 1;
+        }
+
+        self.generate_legal_moves();
+
+        println!(
+            "{}: {}: {}",
+            depth,
+            self.move_list_stack[self.depth].len(),
+            self.depth
+        );
+
         let mut nodes = 0;
+        let num_moves = self.move_list_stack[self.depth].len();
 
-        for m in moves {
-            let is_legal_move = self.make_move(m, false);
-
-            if !is_legal_move {
+        for i in 0..num_moves {
+            let m = self.move_list_stack[self.depth][i];
+            if !self.make_move(&m, false) {
                 if m.is_enpassant() {
                     continue;
                 }
@@ -1210,44 +1196,82 @@ impl MoveGenerator for Position {
 
         return nodes;
     }
+}
 
-    fn detailed_perft(&mut self, depth: u8) -> PerftResult {
-        let mut results = PerftResult {
-            nodes: 1,
-            captures: 0,
-            enpassants: 0,
-            castles: 0,
-            promotions: 0,
-            checkmates: 0,
-            checks: 0,
-            depth: 0,
-            discovery_checks: 0,
-            double_checks: 0,
-        };
-
-        if depth == 0 {
-            return results;
+impl Position {
+    fn get_pawn_attacks(&self) -> u64 {
+        let mut attacks: u64 = 0;
+        let mut opponent_pawns = self.bitboards[Piece::WhitePawn as usize + (!self.turn as usize * 6)];
+        while opponent_pawns != 0 {
+            let i = utils::pop_lsb(&mut opponent_pawns);
+            attacks |= self.pawn_attacks[!self.turn as usize][i as usize];
         }
+        return attacks;
+    }
 
-        let moves = self.generate_legal_moves();
+    fn get_bishop_attacks(&self, occupancy: u64) -> u64 {
+        let mut attacks: u64 = 0;
+        let mut opponent_bishops = self.bitboards[Piece::WhiteBishop as usize + (!self.turn as usize * 6)];
+        while opponent_bishops != 0 {
+            let i = utils::pop_lsb(&mut opponent_bishops);
+            attacks |= self.get_bishop_magic_attacks(Square::from(i), occupancy);
+        }
+        return attacks;
+    }
 
-        for m in moves {
-            let is_legal_move = self.make_move(m, false);
+    fn get_rook_attacks(&self, occupancy: u64) -> u64 {
+        let mut attacks: u64 = 0;
+        let mut opponent_rooks = self.bitboards[Piece::WhiteRook as usize + (!self.turn as usize * 6)];
+        while opponent_rooks != 0 {
+            let i = utils::pop_lsb(&mut opponent_rooks);
+            attacks |= self.get_rook_magic_attacks(Square::from(i), occupancy);
+        }
+        return attacks;
+    }
 
-            if !is_legal_move {
-                if m.is_enpassant() {
-                    continue;
-                }
-                self.draw();
-                panic!("Illegal move: {}", m);
+    fn get_queen_attacks(&self, occupancy: u64) -> u64 {
+        let mut attacks: u64 = 0;
+        let mut opponent_queens = self.bitboards[Piece::WhiteQueen as usize + (!self.turn as usize * 6)];
+        while opponent_queens != 0 {
+            let i = utils::pop_lsb(&mut opponent_queens);
+            attacks |= self.get_queen_magic_attacks(Square::from(i), occupancy);
+        }
+        return attacks;
+    }
+
+    fn get_knight_attacks(&self) -> u64 {
+        let mut attacks: u64 = 0;
+        let mut opponent_knights = self.bitboards[Piece::WhiteKnight as usize + (!self.turn as usize * 6)];
+        while opponent_knights != 0 {
+            let i = utils::pop_lsb(&mut opponent_knights);
+            attacks |= self.knight_attacks[i as usize];
+        }
+        return attacks;
+    }
+
+    fn get_attacked_squares_without_king(&mut self, opponent_color: Color, king_square: Square) -> u64 {
+        let occupancy_wo_king = self.get_both_occupancy() ^ (1u64 << king_square as u8);
+        return self.get_bishop_attacks(occupancy_wo_king)
+            | self.get_rook_attacks(occupancy_wo_king)
+            | self.get_queen_attacks(occupancy_wo_king)
+            | self.get_knight_attacks()
+            | self.get_pawn_attacks();
+    }
+
+    fn compute_check_masks(&mut self, king_square: Square, checkers: u64) -> (bool, bool, u64, u64) {
+        return match checkers.count_ones() {
+            0 => (false, false, FULL_BOARD, FULL_BOARD),
+            1 => {
+                let checker_square = Square::from(utils::get_lsb(checkers));
+                let push_mask = if self.get_piece_at_square(checker_square as u8).is_slider() {
+                    self.get_between_squares(king_square, checker_square)
+                } else {
+                    0
+                };
+                return (true, false, checkers, push_mask);
             }
-
-            results = results + self.detailed_perft(depth - 1);
-
-            self.unmake_move();
-        }
-
-        return results;
+            _ => (true, true, FULL_BOARD, FULL_BOARD)
+        };
     }
 }
 

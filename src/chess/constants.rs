@@ -13,3 +13,5 @@ pub static RANK_5: &'static u64 = &0x00000000FF000000;
 pub static RANK_4: &'static u64 = &0x000000FF00000000;
 pub static RANK_2: &'static u64 = &0x00FF000000000000;
 pub static RANK_1: &'static u64 = &0xFF00000000000000;
+
+pub const FULL_BOARD: u64 = 0xFFFFFFFFFFFFFFFF;

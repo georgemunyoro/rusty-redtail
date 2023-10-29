@@ -286,7 +286,7 @@ impl Evaluator {
         let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
 
         while let Some(pm) = queue.pop() {
-            let is_legal_move = position.make_move(pm.m, false);
+            let is_legal_move = position.make_move(&pm.m, false);
             if !is_legal_move {
                 continue;
             }
@@ -436,7 +436,7 @@ impl Evaluator {
                 continue;
             }
 
-            let is_legal_capture = position.make_move(pm.m, true);
+            let is_legal_capture = position.make_move(&pm.m, true);
             if !is_legal_capture {
                 continue;
             }

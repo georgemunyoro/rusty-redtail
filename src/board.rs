@@ -2,7 +2,11 @@ pub mod constants;
 
 use crate::{
     chess::{
-        self, castling_rights::CastlingRights, color::Color, piece::Piece, square::Square,
+        self,
+        castling_rights::CastlingRights,
+        color::Color,
+        piece::{Piece, PieceTrait},
+        square::Square,
         square::SQUARE_ITER,
     },
     pst::{
@@ -61,8 +65,12 @@ pub struct Position {
     pub black_passed_pawn_masks: [u64; 64],
 
     pub opponent_attack_map: u64,
+
+    pub move_list_stack: Vec<Vec<chess::_move::BitPackedMove>>,
+    pub depth: usize,
 }
 
+#[derive(Clone, Copy)]
 pub struct HistoryEntry {
     pub bitboards: [u64; 12],
     pub turn: Color,
@@ -74,6 +82,22 @@ pub struct HistoryEntry {
     pub fullmove_number: u32,
     pub occupancies: [u64; 3],
     pub hash: u64,
+}
+
+impl HistoryEntry {
+    fn default() -> HistoryEntry {
+        return HistoryEntry {
+            bitboards: [0; 12],
+            turn: Color::White,
+            enpassant: None,
+            castling: CastlingRights::new(),
+            material: [0; 2],
+            halfmove_clock: 0,
+            fullmove_number: 1,
+            occupancies: [0; 3],
+            hash: 0,
+        };
+    }
 }
 
 pub trait Board {
@@ -92,7 +116,7 @@ pub trait Board {
 
     fn is_in_check(&self) -> bool;
 
-    fn make_move(&mut self, m: chess::_move::BitPackedMove, only_captures: bool) -> bool;
+    fn make_move(&mut self, m: &chess::_move::BitPackedMove, only_captures: bool) -> bool;
     fn unmake_move(&mut self);
     fn make_null_move(&mut self);
 
@@ -134,7 +158,7 @@ impl Board for Position {
 
             rand_seed: 1804289383,
 
-            position_stack: Vec::with_capacity(512),
+            position_stack: vec![HistoryEntry::default(); 128],
 
             occupancies: [0; 3],
 
@@ -154,6 +178,9 @@ impl Board for Position {
             isolated_pawn_masks: [0; 64],
 
             opponent_attack_map: 0,
+
+            move_list_stack: vec![Vec::with_capacity(256); 128],
+            depth: 0,
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -345,11 +372,11 @@ impl Board for Position {
 
         let bq_attacks = self.get_bishop_magic_attacks(square, both_occupancy)
             & (self.bitboards[Piece::WhiteBishop as usize + piece_offset]
-                | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
+            | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
 
         let rq_attacks = self.get_rook_magic_attacks(square, both_occupancy)
             & (self.bitboards[Piece::WhiteRook as usize + piece_offset]
-                | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
+            | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
 
         let k_attacks = self.king_attacks[square as usize]
             & self.bitboards[Piece::WhiteKing as usize + piece_offset];
@@ -369,56 +396,58 @@ impl Board for Position {
         ) as i32
             * 365)
             + (utils::count_bits(
-                self.bitboards[Piece::BlackKnight as usize]
-                    | self.bitboards[Piece::WhiteKnight as usize],
-            ) as i32
-                * 337)
+            self.bitboards[Piece::BlackKnight as usize]
+                | self.bitboards[Piece::WhiteKnight as usize],
+        ) as i32
+            * 337)
             + (utils::count_bits(
-                self.bitboards[Piece::BlackRook as usize]
-                    | self.bitboards[Piece::WhiteRook as usize],
-            ) as i32
-                * 477)
+            self.bitboards[Piece::BlackRook as usize]
+                | self.bitboards[Piece::WhiteRook as usize],
+        ) as i32
+            * 477)
             + (utils::count_bits(
-                self.bitboards[Piece::WhiteQueen as usize]
-                    | self.bitboards[Piece::BlackQueen as usize],
-            ) as i32
-                * 1025)
+            self.bitboards[Piece::WhiteQueen as usize]
+                | self.bitboards[Piece::BlackQueen as usize],
+        ) as i32
+            * 1025)
     }
 
-    fn make_move(&mut self, m: chess::_move::BitPackedMove, only_captures: bool) -> bool {
+    fn make_move(&mut self, m: &chess::_move::BitPackedMove, only_captures: bool) -> bool {
         if only_captures && !m.is_capture() {
             return false;
         }
 
-        let game_phase_score = self.get_game_phase_score();
+        let piece_usize = m.get_piece_usize();
+        let piece = Piece::from(piece_usize);
 
-        // add the move to the history
-        let history_entry = self.to_history_entry();
-        self.position_stack.push(history_entry);
+        // Add the move to the history
+        {
+            let entry = &mut self.position_stack[self.depth];
+
+            self.bitboards.clone_into(&mut entry.bitboards);
+            self.occupancies.clone_into(&mut entry.occupancies);
+            self.turn.clone_into(&mut entry.turn);
+            self.enpassant.clone_into(&mut entry.enpassant);
+            self.castling.clone_into(&mut entry.castling);
+            self.material.clone_into(&mut entry.material);
+            self.hash.clone_into(&mut entry.hash);
+            self.halfmove_clock.clone_into(&mut entry.halfmove_clock);
+            self.fullmove_number.clone_into(&mut entry.fullmove_number);
+        }
 
         // set the moving piece
         utils::set_bit(
-            &mut self.bitboards[m.get_piece() as usize],
+            &mut self.bitboards[piece_usize],
             m.get_to() as u8,
         );
-        self.material[self.turn as usize] += _get_piece_value_bl(
-            m.get_piece() as usize,
-            m.get_to() as usize,
-            game_phase_score,
-        );
 
-        self.hash ^= self.zobrist_piece_keys[m.get_piece() as usize][m.get_from() as usize];
-        self.hash ^= self.zobrist_piece_keys[m.get_piece() as usize][m.get_to() as usize];
+        self.hash ^= self.zobrist_piece_keys[piece_usize][m.get_from() as usize];
+        self.hash ^= self.zobrist_piece_keys[piece_usize][m.get_to() as usize];
 
         // remove the moving piece
         utils::clear_bit(
-            &mut self.bitboards[m.get_piece() as usize],
+            &mut self.bitboards[piece_usize],
             m.get_from() as u8,
-        );
-        self.material[self.turn as usize] -= _get_piece_value_bl(
-            m.get_piece() as usize,
-            m.get_from() as usize,
-            game_phase_score,
         );
 
         // handle captures
@@ -429,227 +458,182 @@ impl Board for Position {
                 &mut self.bitboards[captured_piece as usize],
                 m.get_to() as u8,
             );
-            self.material[!self.turn as usize] -= _get_piece_value_bl(
-                captured_piece as usize,
-                m.get_to() as usize,
-                game_phase_score,
-            );
             self.hash ^= self.zobrist_piece_keys[captured_piece as usize][m.get_to() as usize];
-        }
-
-        // handle promotions
-        if m.is_promotion() {
-            // remove the pawn
-            utils::clear_bit(
-                &mut self.bitboards[m.get_piece() as usize],
-                m.get_to() as u8,
-            );
-            self.material[self.turn as usize] -= _get_piece_value_bl(
-                m.get_piece() as usize,
-                m.get_to() as usize,
-                game_phase_score,
-            );
-            self.hash ^= self.zobrist_piece_keys[m.get_piece() as usize][m.get_to() as usize];
-
-            // add the promoted piece
-            utils::set_bit(
-                &mut self.bitboards[m.get_promotion() as usize],
-                m.get_to() as u8,
-            );
-            self.material[self.turn as usize] += _get_piece_value_bl(
-                m.get_promotion() as usize,
-                m.get_to() as usize,
-                game_phase_score,
-            );
-            self.hash ^= self.zobrist_piece_keys[m.get_promotion() as usize][m.get_to() as usize];
         }
 
         if let Some(enpassant_square) = self.enpassant {
             self.hash ^= self.zobrist_enpassant_keys[enpassant_square as usize];
         }
 
-        // handle en passant
-        if m.is_enpassant() {
-            let en_captured_square = (m.get_to() as u8) + (8 - (self.turn as u8 * 16));
-
-            if get_bit(self.occupancies[2], en_captured_square) != 0 {
-                let en_captured_piece = self.get_piece_at_square(en_captured_square);
-
-                // remove the captured pawn
-                utils::clear_bit(
-                    &mut self.bitboards[en_captured_piece as usize],
-                    en_captured_square,
-                );
-
-                self.material[!self.turn as usize] -= _get_piece_value_bl(
-                    en_captured_piece as usize,
-                    en_captured_square as usize,
-                    game_phase_score,
-                );
-            }
-        }
-
         self.enpassant = None;
 
-        // handle setting the en passant square during double pawn pushes
-        if m.get_piece() == Piece::WhitePawn || m.get_piece() == Piece::BlackPawn {
+        if piece.is_pawn() {
+            // Handle promotion
+            if m.is_promotion() {
+                // remove the pawn
+                utils::clear_bit(
+                    &mut self.bitboards[piece_usize],
+                    m.get_to() as u8,
+                );
+                self.hash ^= self.zobrist_piece_keys[piece_usize][m.get_to() as usize];
+
+                // add the promoted piece
+                utils::set_bit(
+                    &mut self.bitboards[m.get_promotion() as usize],
+                    m.get_to() as u8,
+                );
+                self.hash ^= self.zobrist_piece_keys[m.get_promotion() as usize][m.get_to() as usize];
+            }
+
+
+            // Handle en passant moves
+            if m.is_enpassant() {
+                let en_captured_square = ((m.get_to() as i8) + (8i8 - (self.turn as i8 * 16))) as u8;
+
+                if get_bit(self.occupancies[2], en_captured_square) != 0 {
+                    let en_captured_piece = self.get_piece_at_square(en_captured_square);
+
+                    // remove the captured pawn
+                    utils::clear_bit(
+                        &mut self.bitboards[en_captured_piece as usize],
+                        en_captured_square,
+                    );
+                }
+
+                self.update_occupancies();
+
+                // This is for en passant check evasion, computationally
+                // cheaper to do it here than in the move generator
+                if self.is_in_check() {
+                    self.depth += 1;
+                    self.unmake_move();
+                    return false;
+                }
+            }
+
+            // Set the en passant square during double pawn pushes
             let offset = -1 * (m.get_from() as i8 - m.get_to() as i8) / 2;
-            if offset == 8 || offset == -8 {
+            if offset.abs() == 8 {
                 self.enpassant = Some(Square::from((m.get_from() as i8 + offset) as u8));
                 self.hash ^= self.zobrist_enpassant_keys[(m.get_from() as i8 + offset) as usize];
+            } else {
+                self.enpassant = None;
             }
         }
 
-        // handle castling
-        if m.is_castle() {
-            match m.get_to() {
-                Square::C1 => {
-                    // white queen side
-                    utils::clear_bit(
-                        &mut self.bitboards[Piece::WhiteRook as usize],
-                        Square::A1 as u8,
-                    );
-                    self.material[self.turn as usize] -= _get_piece_value_bl(
-                        Piece::WhiteRook as usize,
-                        Square::A1 as usize,
-                        game_phase_score,
-                    );
-                    self.hash ^=
-                        self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::A1 as usize];
+        if piece.is_king() {
+            // handle castling
+            if m.is_castle() {
+                match m.get_to() {
+                    Square::C1 => {
+                        // white queen side
+                        utils::clear_bit(
+                            &mut self.bitboards[Piece::WhiteRook as usize],
+                            Square::A1 as u8,
+                        );
+                        self.hash ^=
+                            self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::A1 as usize];
 
-                    utils::set_bit(
-                        &mut self.bitboards[Piece::WhiteRook as usize],
-                        Square::D1 as u8,
-                    );
-                    self.material[self.turn as usize] += _get_piece_value_bl(
-                        Piece::WhiteRook as usize,
-                        Square::D1 as usize,
-                        game_phase_score,
-                    );
-                    self.hash ^=
-                        self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::D1 as usize];
+                        utils::set_bit(
+                            &mut self.bitboards[Piece::WhiteRook as usize],
+                            Square::D1 as u8,
+                        );
+
+                        self.hash ^=
+                            self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::D1 as usize];
+                    }
+                    Square::G1 => {
+                        // white king side
+                        utils::clear_bit(
+                            &mut self.bitboards[Piece::WhiteRook as usize],
+                            Square::H1 as u8,
+                        );
+
+                        self.hash ^=
+                            self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::H1 as usize];
+
+                        utils::set_bit(
+                            &mut self.bitboards[Piece::WhiteRook as usize],
+                            Square::F1 as u8,
+                        );
+
+                        self.hash ^=
+                            self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::F1 as usize];
+                    }
+                    Square::C8 => {
+                        // black queen side
+                        utils::clear_bit(
+                            &mut self.bitboards[Piece::BlackRook as usize],
+                            Square::A8 as u8,
+                        );
+
+                        self.hash ^=
+                            self.zobrist_piece_keys[Piece::BlackRook as usize][Square::A8 as usize];
+
+                        utils::set_bit(
+                            &mut self.bitboards[Piece::BlackRook as usize],
+                            Square::D8 as u8,
+                        );
+
+                        self.hash ^=
+                            self.zobrist_piece_keys[Piece::BlackRook as usize][Square::D8 as usize];
+                    }
+                    Square::G8 => {
+                        // black king side
+                        utils::clear_bit(
+                            &mut self.bitboards[Piece::BlackRook as usize],
+                            Square::H8 as u8,
+                        );
+
+                        self.hash ^=
+                            self.zobrist_piece_keys[Piece::BlackRook as usize][Square::H8 as usize];
+
+                        utils::set_bit(
+                            &mut self.bitboards[Piece::BlackRook as usize],
+                            Square::F8 as u8,
+                        );
+
+                        self.hash ^=
+                            self.zobrist_piece_keys[Piece::BlackRook as usize][Square::F8 as usize];
+                    }
+                    _ => {}
                 }
-                Square::G1 => {
-                    // white king side
-                    utils::clear_bit(
-                        &mut self.bitboards[Piece::WhiteRook as usize],
-                        Square::H1 as u8,
-                    );
-                    self.material[self.turn as usize] -= _get_piece_value_bl(
-                        Piece::WhiteRook as usize,
-                        Square::H1 as usize,
-                        game_phase_score,
-                    );
-                    self.hash ^=
-                        self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::H1 as usize];
+            }
 
-                    utils::set_bit(
-                        &mut self.bitboards[Piece::WhiteRook as usize],
-                        Square::F1 as u8,
-                    );
-                    self.material[self.turn as usize] += _get_piece_value_bl(
-                        Piece::WhiteRook as usize,
-                        Square::F1 as usize,
-                        game_phase_score,
-                    );
-                    self.hash ^=
-                        self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::F1 as usize];
+            self.hash ^= self.zobrist_castling_keys[self.castling.get_rights_u8() as usize];
+
+            if piece == Piece::WhiteKing {
+                self.castling
+                    .remove_right(CastlingRights::WHITE_KINGSIDE | CastlingRights::WHITE_QUEENSIDE);
+            } else if piece == Piece::BlackKing {
+                self.castling
+                    .remove_right(CastlingRights::BLACK_KINGSIDE | CastlingRights::BLACK_QUEENSIDE);
+            }
+        }
+
+        if piece.is_rook() {
+            match piece {
+                Piece::WhiteRook => {
+                    if m.get_from() == Square::A1 {
+                        self.castling.remove_right(CastlingRights::WHITE_QUEENSIDE);
+                    } else if m.get_from() == Square::H1 {
+                        self.castling.remove_right(CastlingRights::WHITE_KINGSIDE);
+                    }
                 }
-                Square::C8 => {
-                    // black queen side
-                    utils::clear_bit(
-                        &mut self.bitboards[Piece::BlackRook as usize],
-                        Square::A8 as u8,
-                    );
-                    self.material[self.turn as usize] -= _get_piece_value_bl(
-                        Piece::BlackRook as usize,
-                        Square::A8 as usize,
-                        game_phase_score,
-                    );
-                    self.hash ^=
-                        self.zobrist_piece_keys[Piece::BlackRook as usize][Square::A8 as usize];
-
-                    utils::set_bit(
-                        &mut self.bitboards[Piece::BlackRook as usize],
-                        Square::D8 as u8,
-                    );
-                    self.material[self.turn as usize] += _get_piece_value_bl(
-                        Piece::BlackRook as usize,
-                        Square::D8 as usize,
-                        game_phase_score,
-                    );
-                    self.hash ^=
-                        self.zobrist_piece_keys[Piece::BlackRook as usize][Square::D8 as usize];
-                }
-                Square::G8 => {
-                    // black king side
-                    utils::clear_bit(
-                        &mut self.bitboards[Piece::BlackRook as usize],
-                        Square::H8 as u8,
-                    );
-                    self.material[self.turn as usize] -= _get_piece_value_bl(
-                        Piece::BlackRook as usize,
-                        Square::H8 as usize,
-                        game_phase_score,
-                    );
-                    self.hash ^=
-                        self.zobrist_piece_keys[Piece::BlackRook as usize][Square::H8 as usize];
-
-                    utils::set_bit(
-                        &mut self.bitboards[Piece::BlackRook as usize],
-                        Square::F8 as u8,
-                    );
-                    self.material[self.turn as usize] += _get_piece_value_bl(
-                        Piece::BlackRook as usize,
-                        Square::F8 as usize,
-                        game_phase_score,
-                    );
-                    self.hash ^=
-                        self.zobrist_piece_keys[Piece::BlackRook as usize][Square::F8 as usize];
+                Piece::BlackRook => {
+                    if m.get_from() == Square::A8 {
+                        self.castling.remove_right(CastlingRights::BLACK_QUEENSIDE);
+                    } else if m.get_from() == Square::H8 {
+                        self.castling.remove_right(CastlingRights::BLACK_KINGSIDE);
+                    }
                 }
                 _ => {}
             }
         }
 
         self.hash ^= self.zobrist_castling_keys[self.castling.get_rights_u8() as usize];
-
-        if m.get_piece() == Piece::WhiteKing {
-            self.castling
-                .remove_right(CastlingRights::WHITE_KINGSIDE | CastlingRights::WHITE_QUEENSIDE);
-        } else if m.get_piece() == Piece::BlackKing {
-            self.castling
-                .remove_right(CastlingRights::BLACK_KINGSIDE | CastlingRights::BLACK_QUEENSIDE);
-        }
-
-        match m.get_piece() {
-            Piece::WhiteRook => {
-                if m.get_from() == Square::A1 {
-                    self.castling.remove_right(CastlingRights::WHITE_QUEENSIDE);
-                } else if m.get_from() == Square::H1 {
-                    self.castling.remove_right(CastlingRights::WHITE_KINGSIDE);
-                }
-            }
-            Piece::BlackRook => {
-                if m.get_from() == Square::A8 {
-                    self.castling.remove_right(CastlingRights::BLACK_QUEENSIDE);
-                } else if m.get_from() == Square::H8 {
-                    self.castling.remove_right(CastlingRights::BLACK_KINGSIDE);
-                }
-            }
-            _ => {}
-        }
-
-        self.hash ^= self.zobrist_castling_keys[self.castling.get_rights_u8() as usize];
-
         self.update_occupancies();
-
-        // ensure the king is not in check
-        if m.get_piece() != Piece::WhiteKing && m.get_piece() != Piece::BlackKing {
-            if self.is_in_check() {
-                self.unmake_move();
-                return false;
-            }
-        }
+        self.depth += 1;
 
         self.turn = !self.turn;
         self.hash ^= self.zobrist_turn_key;
@@ -658,9 +642,18 @@ impl Board for Position {
     }
 
     fn unmake_move(&mut self) {
-        // pop the history entry and apply it
-        let history_entry = self.position_stack.pop().unwrap();
-        self.apply_history_entry(history_entry);
+        self.depth -= 1;
+
+        let entry = &self.position_stack[self.depth];
+        entry.bitboards.clone_into(&mut self.bitboards);
+        entry.occupancies.clone_into(&mut self.occupancies);
+        entry.turn.clone_into(&mut self.turn);
+        entry.enpassant.clone_into(&mut self.enpassant);
+        entry.castling.clone_into(&mut self.castling);
+        entry.material.clone_into(&mut self.material);
+        entry.hash.clone_into(&mut self.hash);
+        entry.halfmove_clock.clone_into(&mut self.halfmove_clock);
+        entry.fullmove_number.clone_into(&mut self.fullmove_number);
     }
 }
 
@@ -802,7 +795,7 @@ impl Position {
     }
 
     pub fn apply_history_entry(&mut self, entry: HistoryEntry) {
-        self.bitboards = entry.bitboards;
+        entry.bitboards.clone_into(&mut self.bitboards);
         self.turn = entry.turn;
         self.enpassant = entry.enpassant;
         self.castling = entry.castling;
@@ -1529,9 +1522,9 @@ pub fn _get_piece_value_bl(piece: usize, square: usize, game_phase_score: i32) -
         + ENDING_PIECE_SCORES[piece] * (OPENING_GAME_PHASE_SCORE - game_phase_score))
         / OPENING_GAME_PHASE_SCORE
         + (OPENING_PIECE_PST_MAP[piece][adjusted_square] * game_phase_score
-            + ENDING_PIECE_PST_MAP[piece][adjusted_square]
-                * (OPENING_GAME_PHASE_SCORE - game_phase_score))
-            / OPENING_GAME_PHASE_SCORE;
+        + ENDING_PIECE_PST_MAP[piece][adjusted_square]
+        * (OPENING_GAME_PHASE_SCORE - game_phase_score))
+        / OPENING_GAME_PHASE_SCORE;
 
     let piece_value = is_opening as i32 * opening_value
         + is_endgame as i32 * ending_value

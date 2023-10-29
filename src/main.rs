@@ -50,31 +50,29 @@ fn main() {
 
         position.draw();
 
-        let moves = position.generate_legal_moves();
-        println!("Total moves: {}", moves.len());
-        for m in moves {
-            println!("{}", m)
-            // println!(
-            //     "Moving piece {} from {} to {}",
-            //     m.get_piece(),
-            //     m.get_from(),
-            //     m.get_to()
-            // );
+        position.generate_legal_moves();
+
+        println!("Total moves: {}", position.move_list_stack[position.depth].len());
+
+        let num_moves = position.move_list_stack[position.depth].len();
+        for i in 0..num_moves {
+            let m = position.move_list_stack[position.depth][i];
+            println!("{}: {}", i, m);
         }
     } else {
-        for depth in 0..=5 {
+        for depth in 0..=6 {
             let mut position = <board::Position as board::Board>::new(None);
             position.set_fen(String::from(
                 // "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-                STARTING_FEN
+                STARTING_FEN,
             ));
             let start_time = std::time::Instant::now();
-            let result = position.detailed_perft(depth);
+            let nodes = position.divide_perft(depth);
             let elapsed = start_time.elapsed().as_millis();
-            let nodes_per_sec = result.nodes as f32 / (elapsed as f32 / 1000.0);
+            let nodes_per_sec = nodes as f32 / (elapsed as f32 / 1000.0);
             println!(
                 "Depth: {}, Nodes: {}, Time: {}ms, Nodes/sec: {}",
-                depth, result.nodes, elapsed, nodes_per_sec
+                depth, nodes, elapsed, nodes_per_sec
             );
         }
     }

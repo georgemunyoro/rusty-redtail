@@ -57,6 +57,10 @@ impl BitPackedMove {
         return Piece::from(((self.move_bits >> BitPackedMove::PIECE_SHIFT) as usize) & 0xF);
     }
 
+    pub fn get_piece_usize(&self) -> usize {
+        return ((self.move_bits >> BitPackedMove::PIECE_SHIFT) as usize) & 0xF;
+    }
+
     /// Returns the initial square of the piece moving
     pub fn get_from(&self) -> Square {
         return Square::from((self.move_bits >> BitPackedMove::FROM_SHIFT) as usize);

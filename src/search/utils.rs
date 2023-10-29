@@ -8,7 +8,7 @@ use crate::{
 pub fn parse_and_make_moves(position: &mut board::Position, moves: Vec<&str>) {
     for m in moves {
         if let Some(parsed_move) = parse_move(position, m) {
-            position.make_move(parsed_move, false);
+            position.make_move(&parsed_move, false);
         };
     }
 }

@@ -148,9 +148,11 @@ impl TranspositionTable {
 
             positions_encountered.push(position.hash);
             pv_line.push(entry);
-            position.make_move(entry.get_move(), false);
+            position.make_move(&entry.get_move(), false);
 
-            if position.is_in_check() && position.generate_legal_moves().len() == 0 {
+            position.generate_legal_moves();
+
+            if position.is_in_check() && position.move_list_stack[position.depth].len() == 0 {
                 break;
             }
         }
