@@ -20,6 +20,106 @@ pub enum Piece {
     Empty,
 }
 
+pub trait PieceTrait {
+    fn is_white(&self) -> bool;
+    fn is_black(&self) -> bool;
+    fn is_empty(&self) -> bool;
+    fn is_king(&self) -> bool;
+    fn is_queen(&self) -> bool;
+    fn is_rook(&self) -> bool;
+    fn is_bishop(&self) -> bool;
+    fn is_knight(&self) -> bool;
+    fn is_pawn(&self) -> bool;
+    fn is_slider(&self) -> bool;
+}
+
+impl PieceTrait for Piece {
+    fn is_bishop(&self) -> bool {
+        match self {
+            Piece::WhiteBishop | Piece::BlackBishop => true,
+            _ => false,
+        }
+    }
+
+    fn is_black(&self) -> bool {
+        match self {
+            Piece::BlackPawn
+            | Piece::BlackKnight
+            | Piece::BlackBishop
+            | Piece::BlackRook
+            | Piece::BlackQueen
+            | Piece::BlackKing => true,
+            _ => false,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            Piece::Empty => true,
+            _ => false,
+        }
+    }
+
+    fn is_king(&self) -> bool {
+        match self {
+            Piece::WhiteKing | Piece::BlackKing => true,
+            _ => false,
+        }
+    }
+
+    fn is_knight(&self) -> bool {
+        match self {
+            Piece::WhiteKnight | Piece::BlackKnight => true,
+            _ => false,
+        }
+    }
+
+    fn is_pawn(&self) -> bool {
+        match self {
+            Piece::WhitePawn | Piece::BlackPawn => true,
+            _ => false,
+        }
+    }
+
+    fn is_queen(&self) -> bool {
+        match self {
+            Piece::WhiteQueen | Piece::BlackQueen => true,
+            _ => false,
+        }
+    }
+
+    fn is_rook(&self) -> bool {
+        match self {
+            Piece::WhiteRook | Piece::BlackRook => true,
+            _ => false,
+        }
+    }
+
+    fn is_white(&self) -> bool {
+        match self {
+            Piece::WhitePawn
+            | Piece::WhiteKnight
+            | Piece::WhiteBishop
+            | Piece::WhiteRook
+            | Piece::WhiteQueen
+            | Piece::WhiteKing => true,
+            _ => false,
+        }
+    }
+
+    fn is_slider(&self) -> bool {
+        match self {
+            Piece::WhiteBishop
+            | Piece::BlackBishop
+            | Piece::WhiteRook
+            | Piece::BlackRook
+            | Piece::WhiteQueen
+            | Piece::BlackQueen => true,
+            _ => false,
+        }
+    }
+}
+
 /// Returns the character representation of a piece
 fn get_piece_char(piece: Piece) -> char {
     match piece {
@@ -129,5 +229,3 @@ pub static PIECE_ITER: [Piece; 12] = [
     Piece::WhiteQueen,
     Piece::WhiteKing,
 ];
-
-

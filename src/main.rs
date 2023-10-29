@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use board::Board;
+use chess::constants::STARTING_FEN;
 use movegen::MoveGenerator;
 use uci::UCI;
 
@@ -38,8 +39,45 @@ impl Cutoffs {
 }
 
 fn main() {
-    let mut u = UCI::new();
-    u.uci_loop();
+    // let mut u = UCI::new();
+    // u.uci_loop();
+
+    if false {
+        let mut position = <board::Position as board::Board>::new(None);
+        position.set_fen(String::from(
+            "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+        ));
+
+        position.draw();
+
+        let moves = position.generate_legal_moves();
+        println!("Total moves: {}", moves.len());
+        for m in moves {
+            println!("{}", m)
+            // println!(
+            //     "Moving piece {} from {} to {}",
+            //     m.get_piece(),
+            //     m.get_from(),
+            //     m.get_to()
+            // );
+        }
+    } else {
+        for depth in 0..=5 {
+            let mut position = <board::Position as board::Board>::new(None);
+            position.set_fen(String::from(
+                // "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+                STARTING_FEN
+            ));
+            let start_time = std::time::Instant::now();
+            let result = position.detailed_perft(depth);
+            let elapsed = start_time.elapsed().as_millis();
+            let nodes_per_sec = result.nodes as f32 / (elapsed as f32 / 1000.0);
+            println!(
+                "Depth: {}, Nodes: {}, Time: {}ms, Nodes/sec: {}",
+                depth, result.nodes, elapsed, nodes_per_sec
+            );
+        }
+    }
 }
 
 fn _cutoff_testing() {
@@ -724,5 +762,5 @@ const Y: [&str; 300] = [
     "n7/k5r1/bR6/4pp2/2Q5/3P4/1p1Pp2K/1Bb3R1 w - - 0 1",
     "7n/2P5/KP3PNk/p3p3/3Np3/2p1p3/p7/Q2b4 w - - 0 1",
     "2RK3N/1pp5/2p5/8/1k3r1P/6P1/1pP1qp2/3nb3 w - - 0 1",
-    "8/2P5/1B1p1Pk1/1QP2rp1/3Pn1p1/1p3p2/5P2/K7 w - - 0 1"
+    "8/2P5/1B1p1Pk1/1QP2rp1/3Pn1p1/1p3p2/5P2/K7 w - - 0 1",
 ];
