@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Display};
 
+use crate::board::constants::squares_between;
 use crate::chess::constants::FULL_BOARD;
 use crate::{
     board::{
@@ -358,7 +359,7 @@ impl MoveGenerator for Position {
 
         while bishops != 0 {
             let source = Square::from(utils::pop_lsb(&mut bishops));
-            let mut bishop_moves = self.get_bishop_magic_attacks(source, self.get_both_occupancy())
+            let mut bishop_moves = self.get_bishop_magic_attacks(source, self.occupancies[2])
                 & !friendly_pieces
                 & (push_mask | capture_mask);
 
@@ -386,7 +387,7 @@ impl MoveGenerator for Position {
 
         while rooks != 0 {
             let source = Square::from(utils::pop_lsb(&mut rooks));
-            let mut rook_moves = self.get_rook_magic_attacks(source, self.get_both_occupancy())
+            let mut rook_moves = self.get_rook_magic_attacks(source, self.occupancies[2])
                 & !friendly_pieces
                 & (push_mask | capture_mask);
 
@@ -414,7 +415,7 @@ impl MoveGenerator for Position {
 
         while queens != 0 {
             let source = Square::from(utils::pop_lsb(&mut queens));
-            let mut queen_moves = self.get_queen_magic_attacks(source, self.get_both_occupancy())
+            let mut queen_moves = self.get_queen_magic_attacks(source, self.occupancies[2])
                 & !friendly_pieces
                 & (push_mask | capture_mask);
 
@@ -456,7 +457,11 @@ impl MoveGenerator for Position {
                         Piece::from(Piece::WhitePawn as usize + (self.turn as usize * 6)),
                     );
                     m.set_enpassant();
-                    self.move_list_stack[self.depth].push(m);
+
+                    debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+                    unsafe {
+                        self.move_list_stack.get_unchecked_mut(self.depth).push(m);
+                    }
                 }
             }
 
@@ -520,17 +525,34 @@ impl MoveGenerator for Position {
                         for &promotion in &WHITE_PROMOTIONS {
                             let mut promotion_move = m;
                             promotion_move.set_promotion(promotion);
-                            self.move_list_stack[self.depth].push(promotion_move);
+
+                            debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+                            unsafe {
+                                self.move_list_stack
+                                    .get_unchecked_mut(self.depth)
+                                    .push(promotion_move);
+                            }
                         }
                     }
                     Piece::BlackPawn if target >= Square::A1 => {
                         for &promotion in &BLACK_PROMOTIONS {
                             let mut promotion_move = m;
                             promotion_move.set_promotion(promotion);
-                            self.move_list_stack[self.depth].push(promotion_move);
+
+                            debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+                            unsafe {
+                                self.move_list_stack
+                                    .get_unchecked_mut(self.depth)
+                                    .push(promotion_move);
+                            }
                         }
                     }
-                    _ => self.move_list_stack[self.depth].push(m),
+                    _ => {
+                        debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+                        unsafe {
+                            self.move_list_stack.get_unchecked_mut(self.depth).push(m);
+                        }
+                    }
                 }
             }
 
@@ -543,17 +565,34 @@ impl MoveGenerator for Position {
                         for &promotion in &WHITE_PROMOTIONS {
                             let mut promotion_move = m;
                             promotion_move.set_promotion(promotion);
-                            self.move_list_stack[self.depth].push(promotion_move);
+
+                            debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+                            unsafe {
+                                self.move_list_stack
+                                    .get_unchecked_mut(self.depth)
+                                    .push(promotion_move);
+                            }
                         }
                     }
                     Piece::BlackPawn if target >= Square::A1 => {
                         for &promotion in &BLACK_PROMOTIONS {
                             let mut promotion_move = m;
                             promotion_move.set_promotion(promotion);
-                            self.move_list_stack[self.depth].push(promotion_move);
+
+                            debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+                            unsafe {
+                                self.move_list_stack
+                                    .get_unchecked_mut(self.depth)
+                                    .push(promotion_move);
+                            }
                         }
                     }
-                    _ => self.move_list_stack[self.depth].push(m),
+                    _ => {
+                        debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+                        unsafe {
+                            self.move_list_stack.get_unchecked_mut(self.depth).push(m);
+                        }
+                    }
                 }
             }
         }
@@ -1116,49 +1155,7 @@ impl MoveGenerator for Position {
     }
 
     fn get_between_squares(&self, source: Square, target: Square) -> u64 {
-        let mut between_squares: u64 = 0;
-
-        let dx = (target as i8 % 8) - (source as i8 % 8);
-        let dy = (target as i8 / 8) - (source as i8 / 8);
-
-        let mut x = source as i8 % 8;
-        let mut y = source as i8 / 8;
-
-        let x_to_add = if dx > 0 {
-            1
-        } else {
-            if dx < 0 {
-                -1
-            } else {
-                0
-            }
-        };
-        let y_to_add = if dy > 0 {
-            1
-        } else {
-            if dy < 0 {
-                -1
-            } else {
-                0
-            }
-        };
-
-        x += x_to_add;
-        y += y_to_add;
-
-        // println!(
-        //     "dx: {}, dy: {}, x: {}, y: {}, x_to_add: {}, y_to_add: {}",
-        //     dx, dy, x, y, x_to_add, y_to_add
-        // );
-
-        while x != (target as i8 % 8) || y != (target as i8 / 8) {
-            utils::set_bit(&mut between_squares, (x + y * 8) as u8);
-
-            x += x_to_add;
-            y += y_to_add;
-        }
-
-        return between_squares;
+        return squares_between(source as usize, target as usize);
     }
 
     fn perft(&mut self, depth: u8) -> u64 {
@@ -1208,6 +1205,7 @@ impl MoveGenerator for Position {
 
         for i in 0..num_moves {
             let m = self.move_list_stack[self.depth][i];
+
             if !self.make_move(&m, false) {
                 if m.is_enpassant() {
                     continue;
@@ -1229,14 +1227,20 @@ impl MoveGenerator for Position {
 
 impl Position {
     fn get_pawn_attacks(&self) -> u64 {
-        let mut attacks: u64 = 0;
-        let mut opponent_pawns =
-            self.bitboards[Piece::WhitePawn as usize + (!self.turn as usize * 6)];
-        while opponent_pawns != 0 {
-            let i = utils::pop_lsb(&mut opponent_pawns);
-            attacks |= self.pawn_attacks[!self.turn as usize][i as usize];
+        unsafe {
+            let mut attacks: u64 = 0;
+            let mut opponent_pawns = *self
+                .bitboards
+                .get_unchecked(Piece::WhitePawn as usize + (!self.turn as usize * 6));
+            while opponent_pawns != 0 {
+                let i = utils::pop_lsb(&mut opponent_pawns);
+                attacks |= *self
+                    .pawn_attacks
+                    .get_unchecked(!self.turn as usize)
+                    .get_unchecked(i as usize);
+            }
+            return attacks;
         }
-        return attacks;
     }
 
     fn get_bishop_attacks(&self, occupancy: u64) -> u64 {
@@ -1278,7 +1282,7 @@ impl Position {
             self.bitboards[Piece::WhiteKnight as usize + (!self.turn as usize * 6)];
         while opponent_knights != 0 {
             let i = utils::pop_lsb(&mut opponent_knights);
-            attacks |= self.knight_attacks[i as usize];
+            attacks |= unsafe { self.knight_attacks.get_unchecked(i as usize) };
         }
         return attacks;
     }
@@ -1320,7 +1324,11 @@ impl Position {
             let target = utils::pop_lsb(&mut move_list);
             m.set_to(Square::from(target));
             m.set_capture(self.get_piece_at_square(target));
-            self.move_list_stack[self.depth].push(m);
+
+            debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+            unsafe {
+                self.move_list_stack.get_unchecked_mut(self.depth).push(m);
+            }
             m.set_capture(Piece::Empty);
         }
     }
@@ -1332,7 +1340,11 @@ impl Position {
         while move_list != 0 {
             let target = utils::pop_lsb(&mut move_list);
             m.set_to(Square::from(target));
-            self.move_list_stack[self.depth].push(m);
+
+            debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+            unsafe {
+                self.move_list_stack.get_unchecked_mut(self.depth).push(m);
+            }
         }
     }
 }

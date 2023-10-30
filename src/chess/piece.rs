@@ -174,21 +174,7 @@ impl From<char> for Piece {
 
 impl From<Piece> for usize {
     fn from(v: Piece) -> Self {
-        match v {
-            Piece::WhitePawn => 0,
-            Piece::WhiteKnight => 1,
-            Piece::WhiteBishop => 2,
-            Piece::WhiteRook => 3,
-            Piece::WhiteQueen => 4,
-            Piece::WhiteKing => 5,
-            Piece::BlackPawn => 6,
-            Piece::BlackKnight => 7,
-            Piece::BlackBishop => 8,
-            Piece::BlackRook => 9,
-            Piece::BlackQueen => 10,
-            Piece::BlackKing => 11,
-            Piece::Empty => 12,
-        }
+        return v as usize;
     }
 }
 
@@ -213,7 +199,7 @@ impl From<usize> for Piece {
     }
 }
 
-/// An convenience array for looping over pieces
+/// A convenience array for looping over pieces
 /// from black pawn -> white king
 pub static PIECE_ITER: [Piece; 12] = [
     Piece::BlackPawn,

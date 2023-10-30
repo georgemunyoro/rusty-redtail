@@ -71,7 +71,7 @@ fn main() {
             println!("{}: {}", i, m);
         }
     } else {
-        for depth in 0..=6 {
+        for depth in 0..=5 {
             let mut position = <board::Position as board::Board>::new(None);
             position.set_fen(String::from(
                 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",

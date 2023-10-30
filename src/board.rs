@@ -771,22 +771,26 @@ impl Position {
     }
 
     /// updates the occupancies bitboards
+    #[inline(never)]
     fn update_occupancies(&mut self) {
-        self.occupancies[0] = self.bitboards[0]
-            | self.bitboards[1]
-            | self.bitboards[2]
-            | self.bitboards[3]
-            | self.bitboards[4]
-            | self.bitboards[5];
+        unsafe {
+            *self.occupancies.get_unchecked_mut(0) = self.bitboards.get_unchecked(0)
+                | self.bitboards.get_unchecked(1)
+                | self.bitboards.get_unchecked(2)
+                | self.bitboards.get_unchecked(3)
+                | self.bitboards.get_unchecked(4)
+                | self.bitboards.get_unchecked(5);
 
-        self.occupancies[1] = self.bitboards[6]
-            | self.bitboards[7]
-            | self.bitboards[8]
-            | self.bitboards[9]
-            | self.bitboards[10]
-            | self.bitboards[11];
+            *self.occupancies.get_unchecked_mut(1) = self.bitboards.get_unchecked(6)
+                | self.bitboards.get_unchecked(7)
+                | self.bitboards.get_unchecked(8)
+                | self.bitboards.get_unchecked(9)
+                | self.bitboards.get_unchecked(10)
+                | self.bitboards.get_unchecked(11);
 
-        self.occupancies[2] = self.occupancies[0] | self.occupancies[1];
+            *self.occupancies.get_unchecked_mut(2) =
+                self.occupancies.get_unchecked(0) | self.occupancies.get_unchecked(1);
+        }
     }
 
     pub fn apply_history_entry(&mut self, entry: HistoryEntry) {
@@ -1256,21 +1260,32 @@ impl Position {
     }
 
     pub fn get_bishop_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
-        let mut mutable_occupancy = occupancy;
-        mutable_occupancy &= self.magic_bishop_masks[square as usize];
-        mutable_occupancy =
-            mutable_occupancy.wrapping_mul(constants::BISHOP_MAGIC_NUMBERS[square as usize]);
-        mutable_occupancy >>= 64 - constants::BISHOP_RELEVANT_BITS[square as usize];
-        return self.magic_bishop_attacks[square as usize][mutable_occupancy as usize];
+        unsafe {
+            let mut mutable_occupancy = occupancy;
+            mutable_occupancy &= self.magic_bishop_masks.get_unchecked(square as usize);
+            mutable_occupancy = mutable_occupancy
+                .wrapping_mul(*constants::BISHOP_MAGIC_NUMBERS.get_unchecked(square as usize));
+            mutable_occupancy >>=
+                64 - constants::BISHOP_RELEVANT_BITS.get_unchecked(square as usize);
+            return *self
+                .magic_bishop_attacks
+                .get_unchecked(square as usize)
+                .get_unchecked(mutable_occupancy as usize);
+        }
     }
 
     pub fn get_rook_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
-        let mut mutable_occupancy = occupancy;
-        mutable_occupancy &= self.magic_rook_masks[square as usize];
-        mutable_occupancy =
-            mutable_occupancy.wrapping_mul(constants::ROOK_MAGIC_NUMBERS[square as usize]);
-        mutable_occupancy >>= 64 - constants::ROOK_RELEVANT_BITS[square as usize];
-        return self.magic_rook_attacks[square as usize][mutable_occupancy as usize];
+        unsafe {
+            let mut mutable_occupancy = occupancy;
+            mutable_occupancy &= self.magic_rook_masks.get_unchecked(square as usize);
+            mutable_occupancy = mutable_occupancy
+                .wrapping_mul(*constants::ROOK_MAGIC_NUMBERS.get_unchecked(square as usize));
+            mutable_occupancy >>= 64 - constants::ROOK_RELEVANT_BITS.get_unchecked(square as usize);
+            return *self
+                .magic_rook_attacks
+                .get_unchecked(square as usize)
+                .get_unchecked(mutable_occupancy as usize);
+        }
     }
 
     pub fn get_queen_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
