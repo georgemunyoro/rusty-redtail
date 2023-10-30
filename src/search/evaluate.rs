@@ -4,7 +4,13 @@ use std::{
 };
 
 use crate::{
-    board::{Board, Position},
+    board::{
+        attacks::{
+            BLACK_PASSED_PAWN_MASKS, FILE_MASKS, ISOLATED_PAWN_MASKS, KING_ATTACKS,
+            WHITE_PASSED_PAWN_MASKS,
+        },
+        Board, Position,
+    },
     chess::{
         self,
         _move::{BitPackedMove, PrioritizedMove},
@@ -626,21 +632,20 @@ impl Evaluator {
         while white_pawns != 0 {
             let square = utils::pop_lsb(&mut white_pawns);
             let doubled_pawns = utils::count_bits(
-                position.bitboards[Piece::WhitePawn as usize]
-                    & position.file_masks[square as usize],
+                position.bitboards[Piece::WhitePawn as usize] & FILE_MASKS[square as usize],
             );
             if doubled_pawns > 1 {
                 white_score += DOUBLED_PAWN_PENALTY as i32 * doubled_pawns as i32;
             }
 
             if (position.bitboards[Piece::WhitePawn as usize]
-                & position.isolated_pawn_masks[square as usize])
+                & ISOLATED_PAWN_MASKS[square as usize])
                 == 0
             {
                 white_score += ISOLATED_PAWN_PENALTY as i32;
             }
 
-            if (position.white_passed_pawn_masks[square as usize]
+            if (WHITE_PASSED_PAWN_MASKS[square as usize]
                 & position.bitboards[Piece::BlackPawn as usize])
                 == 0
             {
@@ -652,21 +657,20 @@ impl Evaluator {
         while black_pawns != 0 {
             let square = utils::pop_lsb(&mut black_pawns);
             let doubled_pawns = utils::count_bits(
-                position.bitboards[Piece::BlackPawn as usize]
-                    & position.file_masks[square as usize],
+                position.bitboards[Piece::BlackPawn as usize] & FILE_MASKS[square as usize],
             );
             if doubled_pawns > 1 {
                 black_score += DOUBLED_PAWN_PENALTY as i32 * doubled_pawns as i32;
             }
 
             if (position.bitboards[Piece::BlackPawn as usize]
-                & position.isolated_pawn_masks[square as usize])
+                & ISOLATED_PAWN_MASKS[square as usize])
                 == 0
             {
                 black_score += ISOLATED_PAWN_PENALTY as i32;
             }
 
-            if (position.black_passed_pawn_masks[square as usize]
+            if (BLACK_PASSED_PAWN_MASKS[square as usize]
                 & position.bitboards[Piece::WhitePawn as usize])
                 == 0
             {
@@ -690,9 +694,7 @@ impl Evaluator {
             let square = utils::pop_lsb(&mut white_rooks);
 
             // Semi open files
-            if ((position.bitboards[Piece::WhitePawn as usize])
-                & position.file_masks[square as usize])
-                == 0
+            if ((position.bitboards[Piece::WhitePawn as usize]) & FILE_MASKS[square as usize]) == 0
             {
                 white_score += SEMI_OPEN_FILE_SCORE;
             }
@@ -700,7 +702,7 @@ impl Evaluator {
             // Open files
             if ((position.bitboards[Piece::WhitePawn as usize]
                 | position.bitboards[Piece::BlackPawn as usize])
-                & position.file_masks[square as usize])
+                & FILE_MASKS[square as usize])
                 == 0
             {
                 white_score += OPEN_FILE_SCORE;
@@ -712,9 +714,7 @@ impl Evaluator {
             let square = utils::pop_lsb(&mut black_rooks);
 
             // Semi open files
-            if ((position.bitboards[Piece::BlackPawn as usize])
-                & position.file_masks[square as usize])
-                == 0
+            if ((position.bitboards[Piece::BlackPawn as usize]) & FILE_MASKS[square as usize]) == 0
             {
                 black_score += SEMI_OPEN_FILE_SCORE;
             }
@@ -722,7 +722,7 @@ impl Evaluator {
             // Open files
             if ((position.bitboards[Piece::WhitePawn as usize]
                 | position.bitboards[Piece::BlackPawn as usize])
-                & position.file_masks[square as usize])
+                & FILE_MASKS[square as usize])
                 == 0
             {
                 black_score += OPEN_FILE_SCORE;
@@ -740,7 +740,7 @@ impl Evaluator {
         // white king safety
         let white_king_position = utils::get_lsb(position.bitboards[Piece::WhiteKing as usize]);
         let white_score = utils::count_bits(
-            position.king_attacks[white_king_position as usize]
+            KING_ATTACKS[white_king_position as usize]
                 & position.bitboards[Piece::WhitePawn as usize],
         ) as i32
             * 6;
@@ -748,7 +748,7 @@ impl Evaluator {
         // black king safety
         let black_king_position = utils::get_lsb(position.bitboards[Piece::BlackKing as usize]);
         let black_score = utils::count_bits(
-            position.king_attacks[black_king_position as usize]
+            KING_ATTACKS[black_king_position as usize]
                 & position.bitboards[Piece::BlackPawn as usize],
         ) as i32
             * 6;

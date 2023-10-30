@@ -11,14 +11,16 @@ rand = "0.8"
 fxhash = "0.2.1"
 mimalloc = { version = "0.1.17", default-features = false }
 dhat = "0.3.2"
-
 serde_json = "1.0"
+lazy_static = "1.4.0"
 
 [profile.release]
+opt-level = 3
+debug = true
+lto = "fat"
+overflow-checks = false
 codegen-units = 1
 panic = "abort"
-lto = "fat"
-debug = true
 
 [features]
 dhat-heap = []

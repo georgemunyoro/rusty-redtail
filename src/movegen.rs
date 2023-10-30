@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Display};
 
+use crate::board::attacks::{KING_ATTACKS, KNIGHT_ATTACKS, PAWN_ATTACKS};
 use crate::board::constants::squares_between;
 use crate::chess::constants::FULL_BOARD;
 use crate::{
@@ -168,7 +169,7 @@ impl MoveGenerator for Position {
         let attacked_squares_wo_king = self.get_attacked_squares_without_king(king_square);
 
         let king_moves =
-            self.king_attacks[king_square as usize] & !friendly_pieces & !attacked_squares_wo_king;
+            KING_ATTACKS[king_square as usize] & !friendly_pieces & !attacked_squares_wo_king;
 
         self.append_bb_movelist_captures(
             king_moves & enemy_pieces,
@@ -280,7 +281,7 @@ impl MoveGenerator for Position {
             | self.bitboards[Piece::WhiteBishop as usize + (opponent_color as usize * 6)];
 
         let mut possible_pinner_squares = self.get_queen_magic_attacks(king_square, 0)
-            & !self.king_attacks[king_square as usize] // Sliding pieces can't be pinners if they are next to the king.
+            & !KING_ATTACKS[king_square as usize] // Sliding pieces can't be pinners if they are next to the king.
             & opponent_sliders_mask;
 
         // For each of the possible pinners, check if there is a single friendly piece between
@@ -335,9 +336,8 @@ impl MoveGenerator for Position {
 
         while movable_knights != 0 {
             let source = Square::from(utils::pop_lsb(&mut movable_knights));
-            let knight_moves = self.knight_attacks[source as usize]
-                & !friendly_pieces
-                & (push_mask | capture_mask);
+            let knight_moves =
+                KNIGHT_ATTACKS[source as usize] & !friendly_pieces & (push_mask | capture_mask);
 
             self.append_bb_movelist_captures(
                 knight_moves & enemy_pieces,
@@ -446,7 +446,7 @@ impl MoveGenerator for Position {
 
             // Enpassant captures
             if let Some(enpassant_square) = self.enpassant {
-                let enpassant_attacks = self.pawn_attacks[self.turn as usize][source as usize]
+                let enpassant_attacks = PAWN_ATTACKS[self.turn as usize][source as usize]
                     & (1u64 << enpassant_square as u8);
 
                 if enpassant_attacks != 0 {
@@ -466,7 +466,7 @@ impl MoveGenerator for Position {
             }
 
             // Captures
-            let mut pawn_captures = self.pawn_attacks[self.turn as usize][source as usize]
+            let mut pawn_captures = PAWN_ATTACKS[self.turn as usize][source as usize]
                 & enemy_pieces
                 & (push_mask | capture_mask);
 
@@ -628,7 +628,7 @@ impl MoveGenerator for Position {
 
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
-            let mut knight_moves = self.knight_attacks[i as usize] & !friendly_pieces;
+            let mut knight_moves = KNIGHT_ATTACKS[i as usize] & !friendly_pieces;
             if only_captures {
                 knight_moves &= enemy_pieces
             }
@@ -782,7 +782,7 @@ impl MoveGenerator for Position {
 
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
-            let mut king_moves = self.king_attacks[i as usize] & !friendly_pieces;
+            let mut king_moves = KING_ATTACKS[i as usize] & !friendly_pieces;
 
             if only_captures {
                 king_moves &= enemy_pieces;
@@ -959,7 +959,7 @@ impl MoveGenerator for Position {
             }
 
             // pawn captures
-            let mut attacks = self.pawn_attacks[Color::White as usize][source as usize]
+            let mut attacks = PAWN_ATTACKS[Color::White as usize][source as usize]
                 & self.occupancies[Color::Black as usize];
             while attacks != 0 {
                 let target = Square::from(utils::get_lsb(attacks));
@@ -992,7 +992,7 @@ impl MoveGenerator for Position {
 
             // generate enpassant captures
             if let Some(enpassant_square) = self.enpassant {
-                let enpassant_attacks = self.pawn_attacks[Color::White as usize][source as usize]
+                let enpassant_attacks = PAWN_ATTACKS[Color::White as usize][source as usize]
                     & (1u64 << enpassant_square as u8);
 
                 if enpassant_attacks != 0 {
@@ -1068,7 +1068,7 @@ impl MoveGenerator for Position {
             }
 
             // pawn captures
-            let mut attacks = self.pawn_attacks[Color::Black as usize][source as usize]
+            let mut attacks = PAWN_ATTACKS[Color::Black as usize][source as usize]
                 & self.occupancies[Color::White as usize];
             while attacks != 0 {
                 let target = Square::from(utils::get_lsb(attacks));
@@ -1101,7 +1101,7 @@ impl MoveGenerator for Position {
 
             // generate enpassant captures
             if let Some(enpassant_square) = self.enpassant {
-                let enpassant_attacks = self.pawn_attacks[Color::Black as usize][source as usize]
+                let enpassant_attacks = PAWN_ATTACKS[Color::Black as usize][source as usize]
                     & (1u64 << enpassant_square as u8);
 
                 if enpassant_attacks != 0 {
@@ -1134,11 +1134,11 @@ impl MoveGenerator for Position {
         let mut attackers: u64 = 0;
 
         // Pawn attackers
-        attackers |= self.pawn_attacks[!color as usize][square as usize]
+        attackers |= PAWN_ATTACKS[!color as usize][square as usize]
             & self.bitboards[Piece::WhitePawn as usize + (color as usize * 6)];
 
         // Knight attackers
-        attackers |= self.knight_attacks[square as usize]
+        attackers |= KNIGHT_ATTACKS[square as usize]
             & self.bitboards[Piece::WhiteKnight as usize + (color as usize * 6)];
 
         // Diagonal slider attackers
@@ -1234,8 +1234,7 @@ impl Position {
                 .get_unchecked(Piece::WhitePawn as usize + (!self.turn as usize * 6));
             while opponent_pawns != 0 {
                 let i = utils::pop_lsb(&mut opponent_pawns);
-                attacks |= *self
-                    .pawn_attacks
+                attacks |= *PAWN_ATTACKS
                     .get_unchecked(!self.turn as usize)
                     .get_unchecked(i as usize);
             }
@@ -1282,7 +1281,7 @@ impl Position {
             self.bitboards[Piece::WhiteKnight as usize + (!self.turn as usize * 6)];
         while opponent_knights != 0 {
             let i = utils::pop_lsb(&mut opponent_knights);
-            attacks |= unsafe { self.knight_attacks.get_unchecked(i as usize) };
+            attacks |= unsafe { KNIGHT_ATTACKS.get_unchecked(i as usize) };
         }
         return attacks;
     }

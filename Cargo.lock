@@ -283,6 +283,7 @@ version = "0.1.0"
 dependencies = [
  "dhat",
  "fxhash",
+ "lazy_static",
  "mimalloc",
  "rand",
  "serde",

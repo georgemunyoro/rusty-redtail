@@ -1,3 +1,4 @@
+pub mod attacks;
 pub mod constants;
 
 use crate::{
@@ -16,7 +17,12 @@ use crate::{
         OPEN_KNIGHT_POSITIONAL_SCORE, OPEN_PAWN_POSITIONAL_SCORE, OPEN_QUEEN_POSITIONAL_SCORE,
         OPEN_ROOK_POSITIONAL_SCORE,
     },
-    utils::{self, _print_bitboard, get_bit, pop_lsb},
+    utils::{self, get_bit, pop_lsb},
+};
+
+use self::attacks::{
+    KING_ATTACKS, KNIGHT_ATTACKS, MAGIC_BISHOP_ATTACKS, MAGIC_BISHOP_MASKS, MAGIC_ROOK_ATTACKS,
+    MAGIC_ROOK_MASKS, PAWN_ATTACKS,
 };
 
 /// A chess position
@@ -25,49 +31,22 @@ pub struct Position {
     pub turn: Color,
     pub enpassant: Option<Square>,
     pub castling: CastlingRights,
-
     pub halfmove_clock: u32,
     pub fullmove_number: u32,
-
-    pub pawn_attacks: [[u64; 64]; 2],
-    pub knight_attacks: [u64; 64],
-    pub king_attacks: [u64; 64],
-
-    pub bishop_attacks: [u64; 64],
-    pub rook_attacks: [u64; 64],
-    pub queen_attacks: [u64; 64],
-
-    pub magic_bishop_masks: [u64; 64],
-    pub magic_rook_masks: [u64; 64],
-
-    pub magic_bishop_attacks: Vec<Vec<u64>>,
-    pub magic_rook_attacks: Vec<Vec<u64>>,
-
     pub position_stack: Vec<HistoryEntry>,
+    pub occupancies: [u64; 3],
+    pub hash: u64,
+    pub material: [i32; 2],
+    pub move_list_stack: Vec<Vec<chess::_move::BitPackedMove>>,
+    pub depth: usize,
 
     pub rand_seed: u32,
-
-    pub occupancies: [u64; 3],
 
     pub zobrist_piece_keys: [[u64; 64]; 12],
     pub zobrist_castling_keys: [u64; 16],
     pub zobrist_enpassant_keys: [u64; 64],
     pub zobrist_turn_key: u64,
-
-    pub hash: u64,
-    pub material: [i32; 2],
-
-    pub file_masks: [u64; 64],
-    pub rank_masks: [u64; 64],
-    pub isolated_pawn_masks: [u64; 64],
-
-    pub white_passed_pawn_masks: [u64; 64],
-    pub black_passed_pawn_masks: [u64; 64],
-
     pub opponent_attack_map: u64,
-
-    pub move_list_stack: Vec<Vec<chess::_move::BitPackedMove>>,
-    pub depth: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -138,19 +117,6 @@ impl Board for Position {
             bitboards: [0; 12],
             turn: Color::White,
 
-            pawn_attacks: [[0; 64]; 2],
-            knight_attacks: [0; 64],
-            king_attacks: [0; 64],
-            bishop_attacks: [0; 64],
-            rook_attacks: [0; 64],
-            queen_attacks: [0; 64],
-
-            magic_bishop_masks: [0; 64],
-            magic_rook_masks: [0; 64],
-
-            magic_bishop_attacks: vec![vec![0; 512]; 64],
-            magic_rook_attacks: vec![vec![0; 4096]; 64],
-
             enpassant: None,
             castling: CastlingRights::new(),
             halfmove_clock: 0,
@@ -170,24 +136,11 @@ impl Board for Position {
             hash: 0,
             material: [0, 0],
 
-            white_passed_pawn_masks: [0; 64],
-            black_passed_pawn_masks: [0; 64],
-
-            file_masks: [0; 64],
-            rank_masks: [0; 64],
-            isolated_pawn_masks: [0; 64],
-
             opponent_attack_map: 0,
 
             move_list_stack: vec![Vec::with_capacity(256); 128],
             depth: 0,
         };
-
-        pos.initialize_leaper_piece_attacks();
-        pos.initialize_slider_piece_attacks();
-        pos.initialize_slider_magic_attacks(false);
-        pos.initialize_slider_magic_attacks(true);
-        pos.init_evaluation_masks();
 
         pos.init_zorbrist_keys();
         pos.update_occupancies();
@@ -364,10 +317,10 @@ impl Board for Position {
     ) -> bool {
         let piece_offset = color as usize * 6;
 
-        let p_attacks = self.pawn_attacks[!color as usize][square as usize]
+        let p_attacks = PAWN_ATTACKS[!color as usize][square as usize]
             & self.bitboards[Piece::WhitePawn as usize + piece_offset];
 
-        let n_attacks = self.knight_attacks[square as usize]
+        let n_attacks = KNIGHT_ATTACKS[square as usize]
             & self.bitboards[Piece::WhiteKnight as usize + piece_offset];
 
         let bq_attacks = self.get_bishop_magic_attacks(square, both_occupancy)
@@ -378,7 +331,7 @@ impl Board for Position {
             & (self.bitboards[Piece::WhiteRook as usize + piece_offset]
                 | self.bitboards[Piece::WhiteQueen as usize + piece_offset]);
 
-        let k_attacks = self.king_attacks[square as usize]
+        let k_attacks = KING_ATTACKS[square as usize]
             & self.bitboards[Piece::WhiteKing as usize + piece_offset];
 
         return (p_attacks | n_attacks | bq_attacks | rq_attacks | k_attacks) != 0;
@@ -654,63 +607,6 @@ impl Board for Position {
 }
 
 impl Position {
-    pub fn set_file_rank_mask(&mut self, file_num: i32, rank_num: i32) -> u64 {
-        let mut mask: u64 = 0;
-
-        for rank in 0..8 {
-            for file in 0..8 {
-                let square = rank * 8 + file;
-
-                if file_num != -1 {
-                    if file == file_num {
-                        utils::set_bit(&mut mask, square as u8);
-                    }
-                } else if rank_num != -1 {
-                    if rank == rank_num {
-                        utils::set_bit(&mut mask, square as u8);
-                    }
-                }
-            }
-        }
-
-        return mask;
-    }
-
-    pub fn init_evaluation_masks(&mut self) {
-        for rank in 0..8 {
-            for file in 0..8 {
-                let square = rank * 8 + file;
-
-                self.file_masks[square] = self.set_file_rank_mask(file as i32, -1);
-                self.rank_masks[square] = self.set_file_rank_mask(-1, rank as i32);
-
-                self.isolated_pawn_masks[square] = self.set_file_rank_mask(file as i32 - 1, -1)
-                    | self.set_file_rank_mask(file as i32 + 1, -1);
-            }
-        }
-
-        for rank in 0..8 {
-            for file in 0..8 {
-                let square = rank * 8 + file;
-
-                let m = self.set_file_rank_mask(file as i32 - 1, -1)
-                    | self.set_file_rank_mask(file as i32 + 1, -1)
-                    | self.set_file_rank_mask(file as i32, -1);
-
-                self.white_passed_pawn_masks[square] = m;
-                self.black_passed_pawn_masks[square] = m;
-
-                for i in 0..(8 - rank) {
-                    self.white_passed_pawn_masks[square] &= !self.rank_masks[(7 - i) * 8 + file];
-                }
-
-                for i in 0..(rank + 1) {
-                    self.black_passed_pawn_masks[square] &= !self.rank_masks[i * 8 + file];
-                }
-            }
-        }
-    }
-
     pub fn update_hash(&mut self) {
         let mut hash: u64 = 0;
         for piece in 0..12 {
@@ -771,25 +667,24 @@ impl Position {
     }
 
     /// updates the occupancies bitboards
-    #[inline(never)]
     fn update_occupancies(&mut self) {
         unsafe {
-            *self.occupancies.get_unchecked_mut(0) = self.bitboards.get_unchecked(0)
+            let white_occupancy = self.bitboards.get_unchecked(0)
                 | self.bitboards.get_unchecked(1)
                 | self.bitboards.get_unchecked(2)
                 | self.bitboards.get_unchecked(3)
                 | self.bitboards.get_unchecked(4)
                 | self.bitboards.get_unchecked(5);
-
-            *self.occupancies.get_unchecked_mut(1) = self.bitboards.get_unchecked(6)
+            let black_occupancy = self.bitboards.get_unchecked(6)
                 | self.bitboards.get_unchecked(7)
                 | self.bitboards.get_unchecked(8)
                 | self.bitboards.get_unchecked(9)
                 | self.bitboards.get_unchecked(10)
                 | self.bitboards.get_unchecked(11);
 
-            *self.occupancies.get_unchecked_mut(2) =
-                self.occupancies.get_unchecked(0) | self.occupancies.get_unchecked(1);
+            *self.occupancies.get_unchecked_mut(0) = white_occupancy;
+            *self.occupancies.get_unchecked_mut(1) = black_occupancy;
+            *self.occupancies.get_unchecked_mut(2) = white_occupancy | black_occupancy;
         }
     }
 
@@ -839,131 +734,6 @@ impl Position {
         };
 
         return Piece::Empty;
-    }
-
-    fn initialize_leaper_piece_attacks(&mut self) {
-        for i in 0..64 {
-            // Pawns
-            self.pawn_attacks[Color::White as usize][i] =
-                self.mask_pawn_attacks(Square::from(i), Color::White);
-            self.pawn_attacks[Color::Black as usize][i] =
-                self.mask_pawn_attacks(Square::from(i), Color::Black);
-
-            // Knights
-            self.knight_attacks[i] = self.mask_knight_attacks(Square::from(i));
-
-            // Kings
-            self.king_attacks[i] = self.mask_king_attacks(Square::from(i));
-        }
-    }
-
-    fn initialize_slider_piece_attacks(&mut self) {
-        for i in 0..64 {
-            // Bishops
-            self.bishop_attacks[i] = self.mask_bishop_attacks(Square::from(i));
-
-            // Rooks
-            self.rook_attacks[i] = self.mask_rook_attacks(Square::from(i));
-
-            // Queens
-            self.queen_attacks[i] = self.rook_attacks[i] | self.bishop_attacks[i];
-        }
-    }
-
-    fn mask_pawn_attacks(&self, square: Square, side: Color) -> u64 {
-        let mut attacks: u64 = 0;
-        let mut bitboard: u64 = 0;
-
-        utils::set_bit(&mut bitboard, u8::from(square));
-
-        if side == Color::White {
-            if (bitboard >> 7) & !(*chess::constants::FILE_A) != 0 {
-                attacks |= bitboard >> 7;
-            }
-            if (bitboard >> 9) & !(*chess::constants::FILE_H) != 0 {
-                attacks |= bitboard >> 9;
-            }
-        }
-
-        if side == Color::Black {
-            if (bitboard << 7) & !(*chess::constants::FILE_H) != 0 {
-                attacks |= bitboard << 7;
-            }
-            if (bitboard << 9) & !(*chess::constants::FILE_A) != 0 {
-                attacks |= bitboard << 9;
-            }
-        }
-
-        return attacks;
-    }
-
-    fn mask_knight_attacks(&self, square: Square) -> u64 {
-        let mut attacks: u64 = 0;
-        let mut bitboard: u64 = 0;
-
-        utils::set_bit(&mut bitboard, u8::from(square));
-
-        if (bitboard >> 17) & !(*chess::constants::FILE_H) != 0 {
-            attacks |= bitboard >> 17;
-        }
-        if (bitboard >> 15) & !(*chess::constants::FILE_A) != 0 {
-            attacks |= bitboard >> 15;
-        }
-        if (bitboard >> 10) & !(*chess::constants::FILE_GH) != 0 {
-            attacks |= bitboard >> 10;
-        }
-        if (bitboard >> 6) & !(*chess::constants::FILE_AB) != 0 {
-            attacks |= bitboard >> 6;
-        }
-        if (bitboard << 17) & !(*chess::constants::FILE_A) != 0 {
-            attacks |= bitboard << 17;
-        }
-        if (bitboard << 15) & !(*chess::constants::FILE_H) != 0 {
-            attacks |= bitboard << 15;
-        }
-        if (bitboard << 10) & !(*chess::constants::FILE_AB) != 0 {
-            attacks |= bitboard << 10;
-        }
-        if (bitboard << 6) & !(*chess::constants::FILE_GH) != 0 {
-            attacks |= bitboard << 6;
-        }
-
-        return attacks;
-    }
-
-    fn mask_king_attacks(&self, square: Square) -> u64 {
-        let mut attacks: u64 = 0;
-        let mut bitboard: u64 = 0;
-
-        utils::set_bit(&mut bitboard, u8::from(square));
-
-        if (bitboard >> 9) & !(*chess::constants::FILE_H) != 0 {
-            attacks |= bitboard >> 9;
-        }
-        if (bitboard >> 8) != 0 {
-            attacks |= bitboard >> 8;
-        }
-        if (bitboard >> 7) & !(*chess::constants::FILE_A) != 0 {
-            attacks |= bitboard >> 7;
-        }
-        if (bitboard >> 1) & !(*chess::constants::FILE_H) != 0 {
-            attacks |= bitboard >> 1;
-        }
-
-        if (bitboard << 9) & !(*chess::constants::FILE_A) != 0 {
-            attacks |= bitboard << 9;
-        }
-        if (bitboard << 8) != 0 {
-            attacks |= bitboard << 8;
-        }
-        if (bitboard << 7) & !(*chess::constants::FILE_H) != 0 {
-            attacks |= bitboard << 7;
-        }
-        if (bitboard << 1) & !(*chess::constants::FILE_A) != 0 {
-            attacks |= bitboard << 1;
-        }
-
-        return attacks;
     }
 
     fn mask_bishop_attacks(&self, square: Square) -> u64 {
@@ -1208,67 +978,15 @@ impl Position {
         }
     }
 
-    fn initialize_slider_magic_attacks(&mut self, is_bishop: bool) {
-        for square in SQUARE_ITER {
-            self.magic_bishop_masks[usize::from(u8::from(square))] =
-                self.mask_bishop_attacks(square);
-
-            self.magic_rook_masks[usize::from(u8::from(square))] = self.mask_rook_attacks(square);
-
-            let attack_mask = if is_bishop {
-                self.magic_bishop_masks[usize::from(u8::from(square))]
-            } else {
-                self.magic_rook_masks[usize::from(u8::from(square))]
-            };
-
-            let relevant_bits_count = utils::count_bits(attack_mask);
-
-            let occupancy_indices = 1 << relevant_bits_count;
-
-            for index in 0..occupancy_indices {
-                if is_bishop {
-                    let occupancy = self.set_occupancy(
-                        index.try_into().unwrap(),
-                        relevant_bits_count,
-                        attack_mask,
-                    );
-                    let magic_index = ((occupancy.wrapping_mul(
-                        constants::BISHOP_MAGIC_NUMBERS[usize::from(u8::from(square))],
-                    )) >> (64
-                        - constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))]))
-                        as usize;
-
-                    self.magic_bishop_attacks[usize::from(u8::from(square))][magic_index] =
-                        self.generate_bishop_attacks_on_the_fly(square, occupancy);
-                } else {
-                    let occupancy = self.set_occupancy(
-                        index.try_into().unwrap(),
-                        relevant_bits_count,
-                        attack_mask,
-                    );
-                    let magic_index = ((occupancy.wrapping_mul(
-                        constants::ROOK_MAGIC_NUMBERS[usize::from(u8::from(square))],
-                    )) >> (64
-                        - constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))]))
-                        as usize;
-
-                    self.magic_rook_attacks[usize::from(u8::from(square))][magic_index] =
-                        self.generate_rook_attacks_on_the_fly(square, occupancy);
-                }
-            }
-        }
-    }
-
     pub fn get_bishop_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
         unsafe {
             let mut mutable_occupancy = occupancy;
-            mutable_occupancy &= self.magic_bishop_masks.get_unchecked(square as usize);
+            mutable_occupancy &= MAGIC_BISHOP_MASKS.get_unchecked(square as usize);
             mutable_occupancy = mutable_occupancy
                 .wrapping_mul(*constants::BISHOP_MAGIC_NUMBERS.get_unchecked(square as usize));
             mutable_occupancy >>=
                 64 - constants::BISHOP_RELEVANT_BITS.get_unchecked(square as usize);
-            return *self
-                .magic_bishop_attacks
+            return *MAGIC_BISHOP_ATTACKS
                 .get_unchecked(square as usize)
                 .get_unchecked(mutable_occupancy as usize);
         }
@@ -1277,12 +995,11 @@ impl Position {
     pub fn get_rook_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
         unsafe {
             let mut mutable_occupancy = occupancy;
-            mutable_occupancy &= self.magic_rook_masks.get_unchecked(square as usize);
+            mutable_occupancy &= MAGIC_ROOK_MASKS.get_unchecked(square as usize);
             mutable_occupancy = mutable_occupancy
                 .wrapping_mul(*constants::ROOK_MAGIC_NUMBERS.get_unchecked(square as usize));
             mutable_occupancy >>= 64 - constants::ROOK_RELEVANT_BITS.get_unchecked(square as usize);
-            return *self
-                .magic_rook_attacks
+            return *MAGIC_ROOK_ATTACKS
                 .get_unchecked(square as usize)
                 .get_unchecked(mutable_occupancy as usize);
         }
