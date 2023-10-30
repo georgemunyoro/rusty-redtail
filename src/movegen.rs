@@ -1,5 +1,7 @@
+use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Display};
 
+use crate::chess::constants::FULL_BOARD;
 use crate::{
     board::{
         constants::{
@@ -18,7 +20,6 @@ use crate::{
     },
     utils::{self, _print_bitboard, clear_bit, get_bit},
 };
-use crate::chess::constants::FULL_BOARD;
 
 pub trait MoveGenerator {
     fn generate_legal_moves(&mut self);
@@ -68,7 +69,7 @@ pub trait MoveGenerator {
 
     fn get_attacked_squares(&mut self) -> u64;
     fn get_square_attackers(&self, square: Square, color: Color) -> u64;
-    fn append_bb_movelist(&mut self, source_move_list: u64, piece: Piece, source: Square);
+    // fn append_bb_movelist(&mut self, source_move_list: u64, piece: Piece, source: Square);
     fn get_between_squares(&self, source: Square, target: Square) -> u64;
 
     fn perft(&mut self, depth: u8) -> u64;
@@ -128,6 +129,20 @@ impl std::ops::Add for PerftResult {
     }
 }
 
+static WHITE_PROMOTIONS: [Piece; 4] = [
+    Piece::WhiteQueen,
+    Piece::WhiteRook,
+    Piece::WhiteBishop,
+    Piece::WhiteKnight,
+];
+
+static BLACK_PROMOTIONS: [Piece; 4] = [
+    Piece::BlackQueen,
+    Piece::BlackRook,
+    Piece::BlackBishop,
+    Piece::BlackKnight,
+];
+
 impl MoveGenerator for Position {
     fn generate_legal_moves(&mut self) {
         self.move_list_stack[self.depth].clear();
@@ -147,15 +162,21 @@ impl MoveGenerator for Position {
         // ============================= King moves =============================
         // ======================================================================
         let checkers = self.get_square_attackers(king_square, opponent_color);
-        (is_in_check, is_in_double_check, capture_mask, push_mask) = self.compute_check_masks(king_square, checkers);
-        let attacked_squares_wo_king = self.get_attacked_squares_without_king(opponent_color, king_square);
+        (is_in_check, is_in_double_check, capture_mask, push_mask) =
+            self.compute_check_masks(king_square, checkers);
+        let attacked_squares_wo_king = self.get_attacked_squares_without_king(king_square);
 
-        let king_moves = self.king_attacks[king_square as usize]
-            & !friendly_pieces
-            & !attacked_squares_wo_king;
+        let king_moves =
+            self.king_attacks[king_square as usize] & !friendly_pieces & !attacked_squares_wo_king;
+
+        self.append_bb_movelist_captures(
+            king_moves & enemy_pieces,
+            Piece::from(Piece::WhiteKing as usize + (self.turn as usize * 6)),
+            king_square,
+        );
 
         self.append_bb_movelist(
-            king_moves,
+            king_moves & !enemy_pieces,
             Piece::from(Piece::WhiteKing as usize + (self.turn as usize * 6)),
             king_square,
         );
@@ -171,14 +192,11 @@ impl MoveGenerator for Position {
             if self.turn == Color::White {
                 let is_king_side_empty = self.occupancies[2] & WHITE_KING_SIDE_CASTLE == 0;
 
-                if is_king_side_empty
-                    && self.castling.can_castle(CastlingRights::WHITE_KINGSIDE)
-                {
+                if is_king_side_empty && self.castling.can_castle(CastlingRights::WHITE_KINGSIDE) {
                     if !self.is_square_attacked(Square::E1, Color::Black)
                         && !self.is_square_attacked(Square::F1, Color::Black)
                         && !self.is_square_attacked(Square::G1, Color::Black)
-                        && get_bit(self.bitboards[Piece::WhiteRook as usize], Square::H1 as u8)
-                        != 0
+                        && get_bit(self.bitboards[Piece::WhiteRook as usize], Square::H1 as u8) != 0
                     {
                         let mut m = chess::_move::BitPackedMove::new(
                             Square::E1,
@@ -192,14 +210,12 @@ impl MoveGenerator for Position {
 
                 let is_queen_side_empty = self.occupancies[2] & WHITE_QUEEN_SIDE_CASTLE == 0;
 
-                if is_queen_side_empty
-                    && self.castling.can_castle(CastlingRights::WHITE_QUEENSIDE)
+                if is_queen_side_empty && self.castling.can_castle(CastlingRights::WHITE_QUEENSIDE)
                 {
                     if !self.is_square_attacked(Square::E1, Color::Black)
                         && !self.is_square_attacked(Square::D1, Color::Black)
                         && !self.is_square_attacked(Square::C1, Color::Black)
-                        && get_bit(self.bitboards[Piece::WhiteRook as usize], Square::A1 as u8)
-                        != 0
+                        && get_bit(self.bitboards[Piece::WhiteRook as usize], Square::A1 as u8) != 0
                     {
                         let mut m = chess::_move::BitPackedMove::new(
                             Square::E1,
@@ -213,14 +229,11 @@ impl MoveGenerator for Position {
             } else if self.turn == Color::Black {
                 let is_king_side_empty = (self.occupancies[2] & BLACK_KING_SIDE_CASTLE) == 0;
 
-                if is_king_side_empty
-                    && self.castling.can_castle(CastlingRights::BLACK_KINGSIDE)
-                {
+                if is_king_side_empty && self.castling.can_castle(CastlingRights::BLACK_KINGSIDE) {
                     if !self.is_square_attacked(Square::E8, Color::White)
                         && !self.is_square_attacked(Square::F8, Color::White)
                         && !self.is_square_attacked(Square::G8, Color::White)
-                        && get_bit(self.bitboards[Piece::BlackRook as usize], Square::H8 as u8)
-                        != 0
+                        && get_bit(self.bitboards[Piece::BlackRook as usize], Square::H8 as u8) != 0
                     {
                         let mut m = chess::_move::BitPackedMove::new(
                             Square::E8,
@@ -234,14 +247,12 @@ impl MoveGenerator for Position {
 
                 let is_queen_side_empty = (self.occupancies[2] & BLACK_QUEEN_SIDE_CASTLE) == 0;
 
-                if is_queen_side_empty
-                    && self.castling.can_castle(CastlingRights::BLACK_QUEENSIDE)
+                if is_queen_side_empty && self.castling.can_castle(CastlingRights::BLACK_QUEENSIDE)
                 {
                     if !self.is_square_attacked(Square::E8, Color::White)
                         && !self.is_square_attacked(Square::D8, Color::White)
                         && !self.is_square_attacked(Square::C8, Color::White)
-                        && get_bit(self.bitboards[Piece::BlackRook as usize], Square::A8 as u8)
-                        != 0
+                        && get_bit(self.bitboards[Piece::BlackRook as usize], Square::A8 as u8) != 0
                     {
                         let mut m = chess::_move::BitPackedMove::new(
                             Square::E8,
@@ -262,7 +273,8 @@ impl MoveGenerator for Position {
         let mut pinned_pieces: u64 = 0;
         let mut pinned_piece_moves: HashMap<u64, u64> = HashMap::new();
 
-        let opponent_sliders_mask = self.bitboards[Piece::WhiteQueen as usize + (opponent_color as usize * 6)]
+        let opponent_sliders_mask = self.bitboards
+            [Piece::WhiteQueen as usize + (opponent_color as usize * 6)]
             | self.bitboards[Piece::WhiteRook as usize + (opponent_color as usize * 6)]
             | self.bitboards[Piece::WhiteBishop as usize + (opponent_color as usize * 6)];
 
@@ -280,18 +292,17 @@ impl MoveGenerator for Position {
 
             let is_potential_rook_pinner = (pinner_piece.is_rook() || pinner_piece.is_queen())
                 && ((self.get_rook_magic_attacks(
-                pinner_square,
-                enemy_pieces | (1u64 << king_square as u8),
-            ) & self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)])
-                != 0);
+                    pinner_square,
+                    enemy_pieces | (1u64 << king_square as u8),
+                ) & self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)])
+                    != 0);
 
-            let is_potential_bishop_pinner = (pinner_piece.is_bishop()
-                || pinner_piece.is_queen())
+            let is_potential_bishop_pinner = (pinner_piece.is_bishop() || pinner_piece.is_queen())
                 && ((self.get_bishop_magic_attacks(
-                pinner_square,
-                enemy_pieces | (1u64 << king_square as u8),
-            ) & self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)])
-                != 0);
+                    pinner_square,
+                    enemy_pieces | (1u64 << king_square as u8),
+                ) & self.bitboards[Piece::WhiteKing as usize + (self.turn as usize * 6)])
+                    != 0);
 
             if !is_potential_bishop_pinner && !is_potential_rook_pinner {
                 continue;
@@ -305,8 +316,7 @@ impl MoveGenerator for Position {
             let friendly_pieces_between_slider_and_king =
                 pieces_between_slider_and_king & friendly_pieces;
 
-            if friendly_pieces_between_slider_and_king.count_ones() == 1
-            {
+            if friendly_pieces_between_slider_and_king.count_ones() == 1 {
                 pinned_piece_moves.insert(
                     friendly_pieces_between_slider_and_king,
                     pieces_between_slider_and_king | (1u64 << pinner_square as u8),
@@ -319,9 +329,8 @@ impl MoveGenerator for Position {
         // ============================== Knight moves ==========================
         // ======================================================================
 
-        let mut movable_knights = self.bitboards
-            [Piece::WhiteKnight as usize + (self.turn as usize * 6)]
-            & !pinned_pieces;
+        let mut movable_knights =
+            self.bitboards[Piece::WhiteKnight as usize + (self.turn as usize * 6)] & !pinned_pieces;
 
         while movable_knights != 0 {
             let source = Square::from(utils::pop_lsb(&mut movable_knights));
@@ -329,8 +338,14 @@ impl MoveGenerator for Position {
                 & !friendly_pieces
                 & (push_mask | capture_mask);
 
+            self.append_bb_movelist_captures(
+                knight_moves & enemy_pieces,
+                Piece::from(Piece::WhiteKnight as usize + (self.turn as usize * 6)),
+                source,
+            );
+
             self.append_bb_movelist(
-                knight_moves,
+                knight_moves & !enemy_pieces,
                 Piece::from(Piece::WhiteKnight as usize + (self.turn as usize * 6)),
                 source,
             );
@@ -339,13 +354,11 @@ impl MoveGenerator for Position {
         // ======================================================================
         // ============================== Bishop moves ==========================
         // ======================================================================
-        let mut bishops =
-            self.bitboards[Piece::WhiteBishop as usize + (self.turn as usize * 6)];
+        let mut bishops = self.bitboards[Piece::WhiteBishop as usize + (self.turn as usize * 6)];
 
         while bishops != 0 {
             let source = Square::from(utils::pop_lsb(&mut bishops));
-            let mut bishop_moves = self
-                .get_bishop_magic_attacks(source, self.get_both_occupancy())
+            let mut bishop_moves = self.get_bishop_magic_attacks(source, self.get_both_occupancy())
                 & !friendly_pieces
                 & (push_mask | capture_mask);
 
@@ -353,8 +366,14 @@ impl MoveGenerator for Position {
                 bishop_moves &= pinned_piece_moves[&(1u64 << source as u8)];
             }
 
+            self.append_bb_movelist_captures(
+                bishop_moves & enemy_pieces,
+                Piece::from(Piece::WhiteBishop as usize + (self.turn as usize * 6)),
+                source,
+            );
+
             self.append_bb_movelist(
-                bishop_moves,
+                bishop_moves & !enemy_pieces,
                 Piece::from(Piece::WhiteBishop as usize + (self.turn as usize * 6)),
                 source,
             );
@@ -375,8 +394,14 @@ impl MoveGenerator for Position {
                 rook_moves &= pinned_piece_moves[&(1u64 << source as u8)];
             }
 
+            self.append_bb_movelist_captures(
+                rook_moves & enemy_pieces,
+                Piece::from(Piece::WhiteRook as usize + (self.turn as usize * 6)),
+                source,
+            );
+
             self.append_bb_movelist(
-                rook_moves,
+                rook_moves & !enemy_pieces,
                 Piece::from(Piece::WhiteRook as usize + (self.turn as usize * 6)),
                 source,
             );
@@ -389,8 +414,7 @@ impl MoveGenerator for Position {
 
         while queens != 0 {
             let source = Square::from(utils::pop_lsb(&mut queens));
-            let mut queen_moves = self
-                .get_queen_magic_attacks(source, self.get_both_occupancy())
+            let mut queen_moves = self.get_queen_magic_attacks(source, self.get_both_occupancy())
                 & !friendly_pieces
                 & (push_mask | capture_mask);
 
@@ -398,8 +422,14 @@ impl MoveGenerator for Position {
                 queen_moves &= pinned_piece_moves[&(1u64 << source as u8)];
             }
 
+            self.append_bb_movelist_captures(
+                queen_moves & enemy_pieces,
+                Piece::from(Piece::WhiteQueen as usize + (self.turn as usize * 6)),
+                source,
+            );
+
             self.append_bb_movelist(
-                queen_moves,
+                queen_moves & !enemy_pieces,
                 Piece::from(Piece::WhiteQueen as usize + (self.turn as usize * 6)),
                 source,
             );
@@ -439,17 +469,15 @@ impl MoveGenerator for Position {
                 pawn_captures &= pinned_piece_moves[&(1u64 << source as u8)];
             }
 
-            self.append_bb_movelist(
-                pawn_captures,
-                Piece::from(Piece::WhitePawn as usize + (self.turn as usize * 6)),
-                source,
-            );
+            let pawn_piece: Piece;
+            let mut pawn_pushes: u64 = 0;
 
             // Pushes
             if self.turn == Color::White {
-                let single_push = (1u64 << (source as u8 - 8))
-                    & !(enemy_pieces | friendly_pieces)
-                    & (push_mask);
+                pawn_piece = Piece::WhitePawn;
+
+                let single_push =
+                    (1u64 << (source as u8 - 8)) & !(enemy_pieces | friendly_pieces) & (push_mask);
 
                 let double_push =
                     (((1u64 << (source as u8 - 8)) & !(enemy_pieces | friendly_pieces)) >> 8)
@@ -457,17 +485,16 @@ impl MoveGenerator for Position {
                         & !(enemy_pieces | friendly_pieces)
                         & RANK_4;
 
-                let mut pawn_pushes = single_push | double_push;
+                pawn_pushes = single_push | double_push;
 
                 if pinned_pieces & (1u64 << source as u8) != 0 {
                     pawn_pushes &= pinned_piece_moves[&(1u64 << source as u8)];
                 }
-
-                self.append_bb_movelist(pawn_pushes, Piece::WhitePawn, source);
             } else {
-                let single_push = (1u64 << (source as u8 + 8))
-                    & !(enemy_pieces | friendly_pieces)
-                    & (push_mask);
+                pawn_piece = Piece::BlackPawn;
+
+                let single_push =
+                    (1u64 << (source as u8 + 8)) & !(enemy_pieces | friendly_pieces) & (push_mask);
 
                 let double_push =
                     (((1u64 << (source as u8 + 8)) & !(enemy_pieces | friendly_pieces)) << 8)
@@ -475,13 +502,59 @@ impl MoveGenerator for Position {
                         & !(enemy_pieces | friendly_pieces)
                         & RANK_5;
 
-                let mut pawn_pushes = single_push | double_push;
+                pawn_pushes = single_push | double_push;
 
                 if pinned_pieces & (1u64 << source as u8) != 0 {
                     pawn_pushes &= pinned_piece_moves[&(1u64 << source as u8)];
                 }
+            }
 
-                self.append_bb_movelist(pawn_pushes, Piece::BlackPawn, source);
+            while pawn_captures != 0 {
+                let target = Square::from(utils::pop_lsb(&mut pawn_captures));
+                let mut m = chess::_move::BitPackedMove::new(source, target, pawn_piece);
+
+                m.set_capture(self.get_piece_at_square(target as u8));
+
+                match pawn_piece {
+                    Piece::WhitePawn if target <= Square::H8 => {
+                        for &promotion in &WHITE_PROMOTIONS {
+                            let mut promotion_move = m;
+                            promotion_move.set_promotion(promotion);
+                            self.move_list_stack[self.depth].push(promotion_move);
+                        }
+                    }
+                    Piece::BlackPawn if target >= Square::A1 => {
+                        for &promotion in &BLACK_PROMOTIONS {
+                            let mut promotion_move = m;
+                            promotion_move.set_promotion(promotion);
+                            self.move_list_stack[self.depth].push(promotion_move);
+                        }
+                    }
+                    _ => self.move_list_stack[self.depth].push(m),
+                }
+            }
+
+            while pawn_pushes != 0 {
+                let target = Square::from(utils::pop_lsb(&mut pawn_pushes));
+                let m = chess::_move::BitPackedMove::new(source, target, pawn_piece);
+
+                match pawn_piece {
+                    Piece::WhitePawn if target <= Square::H8 => {
+                        for &promotion in &WHITE_PROMOTIONS {
+                            let mut promotion_move = m;
+                            promotion_move.set_promotion(promotion);
+                            self.move_list_stack[self.depth].push(promotion_move);
+                        }
+                    }
+                    Piece::BlackPawn if target >= Square::A1 => {
+                        for &promotion in &BLACK_PROMOTIONS {
+                            let mut promotion_move = m;
+                            promotion_move.set_promotion(promotion);
+                            self.move_list_stack[self.depth].push(promotion_move);
+                        }
+                    }
+                    _ => self.move_list_stack[self.depth].push(m),
+                }
             }
         }
     }
@@ -816,13 +889,13 @@ impl MoveGenerator for Position {
                             Piece::WhiteBishop,
                             Piece::WhiteKnight,
                         ]
-                            .iter()
-                            .map(|promotion| {
-                                let mut m =
-                                    chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
-                                m.set_promotion(*promotion);
-                                return m;
-                            }),
+                        .iter()
+                        .map(|promotion| {
+                            let mut m =
+                                chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
+                            m.set_promotion(*promotion);
+                            return m;
+                        }),
                     );
                 } else {
                     // single pawn push
@@ -860,14 +933,14 @@ impl MoveGenerator for Position {
                             Piece::WhiteBishop,
                             Piece::WhiteKnight,
                         ]
-                            .iter()
-                            .map(|promotion| {
-                                let mut m =
-                                    chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
-                                m.set_promotion(*promotion);
-                                m.set_capture(self.get_piece_at_square(target as u8));
-                                return m;
-                            }),
+                        .iter()
+                        .map(|promotion| {
+                            let mut m =
+                                chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
+                            m.set_promotion(*promotion);
+                            m.set_capture(self.get_piece_at_square(target as u8));
+                            return m;
+                        }),
                     );
                 } else {
                     let mut m = chess::_move::BitPackedMove::new(source, target, Piece::WhitePawn);
@@ -925,13 +998,13 @@ impl MoveGenerator for Position {
                             Piece::BlackBishop,
                             Piece::BlackKnight,
                         ]
-                            .iter()
-                            .map(|promotion| {
-                                let mut m =
-                                    chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
-                                m.set_promotion(*promotion);
-                                return m;
-                            }),
+                        .iter()
+                        .map(|promotion| {
+                            let mut m =
+                                chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
+                            m.set_promotion(*promotion);
+                            return m;
+                        }),
                     );
                 } else {
                     // single pawn push
@@ -969,14 +1042,14 @@ impl MoveGenerator for Position {
                             Piece::BlackBishop,
                             Piece::BlackKnight,
                         ]
-                            .iter()
-                            .map(|promotion| {
-                                let mut m =
-                                    chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
-                                m.set_promotion(*promotion);
-                                m.set_capture(self.get_piece_at_square(target as u8));
-                                return m;
-                            }),
+                        .iter()
+                        .map(|promotion| {
+                            let mut m =
+                                chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
+                            m.set_promotion(*promotion);
+                            m.set_capture(self.get_piece_at_square(target as u8));
+                            return m;
+                        }),
                     );
                 } else {
                     let mut m = chess::_move::BitPackedMove::new(source, target, Piece::BlackPawn);
@@ -1032,58 +1105,14 @@ impl MoveGenerator for Position {
         // Diagonal slider attackers
         attackers |= self.get_bishop_magic_attacks(square, self.get_both_occupancy())
             & (self.bitboards[Piece::WhiteBishop as usize + (color as usize * 6)]
-            | self.bitboards[Piece::WhiteQueen as usize + (color as usize * 6)]);
+                | self.bitboards[Piece::WhiteQueen as usize + (color as usize * 6)]);
 
         // Orthogonal slider attackers
         attackers |= self.get_rook_magic_attacks(square, self.get_both_occupancy())
             & (self.bitboards[Piece::WhiteRook as usize + (color as usize * 6)]
-            | self.bitboards[Piece::WhiteQueen as usize + (color as usize * 6)]);
+                | self.bitboards[Piece::WhiteQueen as usize + (color as usize * 6)]);
 
         return attackers;
-    }
-
-    fn append_bb_movelist(&mut self, source_move_list: u64, piece: Piece, source: Square) {
-        static WHITE_PROMOTIONS: [Piece; 4] = [
-            Piece::WhiteQueen,
-            Piece::WhiteRook,
-            Piece::WhiteBishop,
-            Piece::WhiteKnight,
-        ];
-
-        static BLACK_PROMOTIONS: [Piece; 4] = [
-            Piece::BlackQueen,
-            Piece::BlackRook,
-            Piece::BlackBishop,
-            Piece::BlackKnight,
-        ];
-
-        let mut move_list = source_move_list;
-        while move_list != 0 {
-            let target = Square::from(utils::pop_lsb(&mut move_list));
-            let mut m = chess::_move::BitPackedMove::new(source, target, piece);
-
-            if get_bit(self.get_both_occupancy(), target as u8) != 0 {
-                m.set_capture(self.get_piece_at_square(target as u8));
-            }
-
-            match piece {
-                Piece::WhitePawn if target <= Square::H8 => {
-                    for &promotion in &WHITE_PROMOTIONS {
-                        let mut promotion_move = m;
-                        promotion_move.set_promotion(promotion);
-                        self.move_list_stack[self.depth].push(promotion_move);
-                    }
-                }
-                Piece::BlackPawn if target >= Square::A1 => {
-                    for &promotion in &BLACK_PROMOTIONS {
-                        let mut promotion_move = m;
-                        promotion_move.set_promotion(promotion);
-                        self.move_list_stack[self.depth].push(promotion_move);
-                    }
-                }
-                _ => self.move_list_stack[self.depth].push(m)
-            }
-        }
     }
 
     fn get_between_squares(&self, source: Square, target: Square) -> u64 {
@@ -1201,7 +1230,8 @@ impl MoveGenerator for Position {
 impl Position {
     fn get_pawn_attacks(&self) -> u64 {
         let mut attacks: u64 = 0;
-        let mut opponent_pawns = self.bitboards[Piece::WhitePawn as usize + (!self.turn as usize * 6)];
+        let mut opponent_pawns =
+            self.bitboards[Piece::WhitePawn as usize + (!self.turn as usize * 6)];
         while opponent_pawns != 0 {
             let i = utils::pop_lsb(&mut opponent_pawns);
             attacks |= self.pawn_attacks[!self.turn as usize][i as usize];
@@ -1211,7 +1241,8 @@ impl Position {
 
     fn get_bishop_attacks(&self, occupancy: u64) -> u64 {
         let mut attacks: u64 = 0;
-        let mut opponent_bishops = self.bitboards[Piece::WhiteBishop as usize + (!self.turn as usize * 6)];
+        let mut opponent_bishops =
+            self.bitboards[Piece::WhiteBishop as usize + (!self.turn as usize * 6)];
         while opponent_bishops != 0 {
             let i = utils::pop_lsb(&mut opponent_bishops);
             attacks |= self.get_bishop_magic_attacks(Square::from(i), occupancy);
@@ -1221,7 +1252,8 @@ impl Position {
 
     fn get_rook_attacks(&self, occupancy: u64) -> u64 {
         let mut attacks: u64 = 0;
-        let mut opponent_rooks = self.bitboards[Piece::WhiteRook as usize + (!self.turn as usize * 6)];
+        let mut opponent_rooks =
+            self.bitboards[Piece::WhiteRook as usize + (!self.turn as usize * 6)];
         while opponent_rooks != 0 {
             let i = utils::pop_lsb(&mut opponent_rooks);
             attacks |= self.get_rook_magic_attacks(Square::from(i), occupancy);
@@ -1231,7 +1263,8 @@ impl Position {
 
     fn get_queen_attacks(&self, occupancy: u64) -> u64 {
         let mut attacks: u64 = 0;
-        let mut opponent_queens = self.bitboards[Piece::WhiteQueen as usize + (!self.turn as usize * 6)];
+        let mut opponent_queens =
+            self.bitboards[Piece::WhiteQueen as usize + (!self.turn as usize * 6)];
         while opponent_queens != 0 {
             let i = utils::pop_lsb(&mut opponent_queens);
             attacks |= self.get_queen_magic_attacks(Square::from(i), occupancy);
@@ -1241,7 +1274,8 @@ impl Position {
 
     fn get_knight_attacks(&self) -> u64 {
         let mut attacks: u64 = 0;
-        let mut opponent_knights = self.bitboards[Piece::WhiteKnight as usize + (!self.turn as usize * 6)];
+        let mut opponent_knights =
+            self.bitboards[Piece::WhiteKnight as usize + (!self.turn as usize * 6)];
         while opponent_knights != 0 {
             let i = utils::pop_lsb(&mut opponent_knights);
             attacks |= self.knight_attacks[i as usize];
@@ -1249,7 +1283,7 @@ impl Position {
         return attacks;
     }
 
-    fn get_attacked_squares_without_king(&mut self, opponent_color: Color, king_square: Square) -> u64 {
+    fn get_attacked_squares_without_king(&mut self, king_square: Square) -> u64 {
         let occupancy_wo_king = self.get_both_occupancy() ^ (1u64 << king_square as u8);
         return self.get_bishop_attacks(occupancy_wo_king)
             | self.get_rook_attacks(occupancy_wo_king)
@@ -1258,10 +1292,13 @@ impl Position {
             | self.get_pawn_attacks();
     }
 
-    fn compute_check_masks(&mut self, king_square: Square, checkers: u64) -> (bool, bool, u64, u64) {
-        return match checkers.count_ones() {
-            0 => (false, false, FULL_BOARD, FULL_BOARD),
-            1 => {
+    fn compute_check_masks(
+        &mut self,
+        king_square: Square,
+        checkers: u64,
+    ) -> (bool, bool, u64, u64) {
+        return match checkers.count_ones().cmp(&1) {
+            Ordering::Equal => {
                 let checker_square = Square::from(utils::get_lsb(checkers));
                 let push_mask = if self.get_piece_at_square(checker_square as u8).is_slider() {
                     self.get_between_squares(king_square, checker_square)
@@ -1270,8 +1307,33 @@ impl Position {
                 };
                 return (true, false, checkers, push_mask);
             }
-            _ => (true, true, FULL_BOARD, FULL_BOARD)
+            Ordering::Greater => (true, true, FULL_BOARD, FULL_BOARD),
+            Ordering::Less => (false, false, FULL_BOARD, FULL_BOARD),
         };
+    }
+
+    fn append_bb_movelist_captures(&mut self, source_move_list: u64, piece: Piece, source: Square) {
+        let mut move_list = source_move_list;
+        let mut m = chess::_move::BitPackedMove::new(source, Square::A1, piece);
+
+        while move_list != 0 {
+            let target = utils::pop_lsb(&mut move_list);
+            m.set_to(Square::from(target));
+            m.set_capture(self.get_piece_at_square(target));
+            self.move_list_stack[self.depth].push(m);
+            m.set_capture(Piece::Empty);
+        }
+    }
+
+    fn append_bb_movelist(&mut self, source_move_list: u64, piece: Piece, source: Square) {
+        let mut move_list = source_move_list;
+        let mut m = chess::_move::BitPackedMove::new(source, Square::A1, piece);
+
+        while move_list != 0 {
+            let target = utils::pop_lsb(&mut move_list);
+            m.set_to(Square::from(target));
+            self.move_list_stack[self.depth].push(m);
+        }
     }
 }
 

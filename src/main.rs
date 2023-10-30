@@ -16,8 +16,13 @@ mod tt;
 mod uci;
 mod utils;
 
+#[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Cutoffs {
@@ -39,6 +44,9 @@ impl Cutoffs {
 }
 
 fn main() {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     // let mut u = UCI::new();
     // u.uci_loop();
 
@@ -52,7 +60,10 @@ fn main() {
 
         position.generate_legal_moves();
 
-        println!("Total moves: {}", position.move_list_stack[position.depth].len());
+        println!(
+            "Total moves: {}",
+            position.move_list_stack[position.depth].len()
+        );
 
         let num_moves = position.move_list_stack[position.depth].len();
         for i in 0..num_moves {
@@ -63,8 +74,8 @@ fn main() {
         for depth in 0..=6 {
             let mut position = <board::Position as board::Board>::new(None);
             position.set_fen(String::from(
-                // "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-                STARTING_FEN,
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+                // STARTING_FEN,
             ));
             let start_time = std::time::Instant::now();
             let nodes = position.divide_perft(depth);
