@@ -165,7 +165,7 @@ impl TranspositionTable {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct TranspositionTableEntry {
     key: u64,
     data: u64,

@@ -24,7 +24,7 @@ use crate::{
 };
 
 pub trait MoveGenerator {
-    fn generate_legal_moves(&mut self);
+    fn generate_legal_moves(&mut self) -> (usize, bool);
     fn generate_moves(&mut self, only_captures: bool) -> Vec<chess::_move::BitPackedMove>;
 
     fn generate_knight_moves(
@@ -146,7 +146,7 @@ static BLACK_PROMOTIONS: [Piece; 4] = [
 ];
 
 impl MoveGenerator for Position {
-    fn generate_legal_moves(&mut self) {
+    fn generate_legal_moves(&mut self) -> (usize, bool) {
         self.move_list_stack[self.depth].clear();
 
         let enemy_pieces = self.occupancies[!self.turn as usize];
@@ -163,6 +163,7 @@ impl MoveGenerator for Position {
         // ======================================================================
         // ============================= King moves =============================
         // ======================================================================
+
         let checkers = self.get_square_attackers(king_square, opponent_color);
         (is_in_check, is_in_double_check, capture_mask, push_mask) =
             self.compute_check_masks(king_square, checkers);
@@ -184,7 +185,7 @@ impl MoveGenerator for Position {
         );
 
         if is_in_double_check {
-            return;
+            return (self.move_list_stack[self.depth].len(), true);
         }
 
         // ======================================================================
@@ -273,7 +274,8 @@ impl MoveGenerator for Position {
         // ======================================================================
 
         let mut pinned_pieces: u64 = 0;
-        let mut pinned_piece_moves: HashMap<u64, u64> = HashMap::new();
+        // let mut pinned_piece_moves: HashMap<u64, u64> = HashMap::new();
+        self.pinner_map.clear();
 
         let opponent_sliders_mask = self.bitboards
             [Piece::WhiteQueen as usize + (opponent_color as usize * 6)]
@@ -319,7 +321,7 @@ impl MoveGenerator for Position {
                 pieces_between_slider_and_king & friendly_pieces;
 
             if friendly_pieces_between_slider_and_king.count_ones() == 1 {
-                pinned_piece_moves.insert(
+                self.pinner_map.insert(
                     friendly_pieces_between_slider_and_king,
                     pieces_between_slider_and_king | (1u64 << pinner_square as u8),
                 );
@@ -364,7 +366,7 @@ impl MoveGenerator for Position {
                 & (push_mask | capture_mask);
 
             if pinned_pieces & (1u64 << source as u8) != 0 {
-                bishop_moves &= pinned_piece_moves[&(1u64 << source as u8)];
+                bishop_moves &= self.pinner_map[&(1u64 << source as u8)];
             }
 
             self.append_bb_movelist_captures(
@@ -392,7 +394,7 @@ impl MoveGenerator for Position {
                 & (push_mask | capture_mask);
 
             if pinned_pieces & (1u64 << source as u8) != 0 {
-                rook_moves &= pinned_piece_moves[&(1u64 << source as u8)];
+                rook_moves &= self.pinner_map[&(1u64 << source as u8)];
             }
 
             self.append_bb_movelist_captures(
@@ -420,7 +422,7 @@ impl MoveGenerator for Position {
                 & (push_mask | capture_mask);
 
             if pinned_pieces & (1u64 << source as u8) != 0 {
-                queen_moves &= pinned_piece_moves[&(1u64 << source as u8)];
+                queen_moves &= self.pinner_map[&(1u64 << source as u8)];
             }
 
             self.append_bb_movelist_captures(
@@ -458,9 +460,12 @@ impl MoveGenerator for Position {
                     );
                     m.set_enpassant();
 
-                    debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
-                    unsafe {
-                        self.move_list_stack.get_unchecked_mut(self.depth).push(m);
+                    if self.make_move(&m, false) {
+                        self.unmake_move();
+                        debug_assert!(self.depth < 256, "Depth is too high: {}", self.depth);
+                        unsafe {
+                            self.move_list_stack.get_unchecked_mut(self.depth).push(m);
+                        }
                     }
                 }
             }
@@ -471,7 +476,7 @@ impl MoveGenerator for Position {
                 & (push_mask | capture_mask);
 
             if pinned_pieces & (1u64 << source as u8) != 0 {
-                pawn_captures &= pinned_piece_moves[&(1u64 << source as u8)];
+                pawn_captures &= self.pinner_map[&(1u64 << source as u8)];
             }
 
             let pawn_piece: Piece;
@@ -493,7 +498,7 @@ impl MoveGenerator for Position {
                 pawn_pushes = single_push | double_push;
 
                 if pinned_pieces & (1u64 << source as u8) != 0 {
-                    pawn_pushes &= pinned_piece_moves[&(1u64 << source as u8)];
+                    pawn_pushes &= self.pinner_map[&(1u64 << source as u8)];
                 }
             } else {
                 pawn_piece = Piece::BlackPawn;
@@ -510,7 +515,7 @@ impl MoveGenerator for Position {
                 pawn_pushes = single_push | double_push;
 
                 if pinned_pieces & (1u64 << source as u8) != 0 {
-                    pawn_pushes &= pinned_piece_moves[&(1u64 << source as u8)];
+                    pawn_pushes &= self.pinner_map[&(1u64 << source as u8)];
                 }
             }
 
@@ -596,6 +601,8 @@ impl MoveGenerator for Position {
                 }
             }
         }
+
+        return (self.move_list_stack[self.depth].len(), is_in_check);
     }
 
     fn generate_moves(&mut self, only_captures: bool) -> Vec<chess::_move::BitPackedMove> {
@@ -1168,14 +1175,14 @@ impl MoveGenerator for Position {
         self.generate_legal_moves();
         let num_moves = self.move_list_stack[self.depth].len();
 
+        if depth == 1 {
+            return num_moves as u64;
+        }
+
         for i in 0..num_moves {
             let m = self.move_list_stack[self.depth][i];
 
             if !self.make_move(&m, false) {
-                if m.is_enpassant() {
-                    continue;
-                }
-                self.draw();
                 panic!("Illegal move: {}", m);
             }
 

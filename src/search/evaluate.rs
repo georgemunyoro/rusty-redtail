@@ -1,6 +1,8 @@
 use std::{
     collections::BinaryHeap,
+    f32::INFINITY,
     sync::{Arc, Mutex},
+    thread::panicking,
 };
 
 use crate::{
@@ -9,7 +11,7 @@ use crate::{
             BLACK_PASSED_PAWN_MASKS, FILE_MASKS, ISOLATED_PAWN_MASKS, KING_ATTACKS,
             WHITE_PASSED_PAWN_MASKS,
         },
-        Board, Position,
+        Board, Position, _get_piece_value_bl, SIMPLE_PIECE_SCORES,
     },
     chess::{
         self,
@@ -45,6 +47,9 @@ pub struct Evaluator {
     pub repetition_table: Vec<u64>,
     counter_move_table: [[BitPackedMove; 64]; 64],
 }
+
+static MATE_SCORE: i32 = 49000;
+static MAX_SCORE: i32 = 50000;
 
 impl Evaluator {
     fn is_running(&mut self) -> bool {
@@ -110,7 +115,7 @@ impl Evaluator {
         let time_for_move = time_left_for_side / 45 + (increment / 2);
 
         if time_for_move >= time_left_for_side {
-            self.options.movetime = Some(time_left_for_side - 500);
+            self.options.movetime = Some((time_left_for_side as i32 - 500) as u32);
         } else {
             if time_for_move <= 0 {
                 self.options.movetime = Some(200);
@@ -118,6 +123,308 @@ impl Evaluator {
             }
             self.options.movetime = Some(time_for_move);
         }
+    }
+
+    pub fn legal_get_best_move(
+        &mut self,
+        position: &mut Position,
+        options: SearchOptions,
+        running: Arc<Mutex<bool>>,
+        transposition_table: Arc<Mutex<TranspositionTable>>,
+        thread_id: usize,
+        start_depth: u8,
+    ) -> Option<chess::_move::BitPackedMove> {
+        self.result = PositionEvaluation {
+            score: 0,
+            best_move: None,
+            depth: 0,
+            ply: 0,
+            nodes: 0,
+            cutoffs: Cutoffs::new(),
+        };
+
+        let depth = match options.depth {
+            Some(depth) => depth as u8,
+            None => MAX_PLY as u8,
+        };
+
+        self.options = options;
+        self.set_move_time(position);
+
+        self.running = running;
+        self.tt = transposition_table;
+        self.started_at = Evaluator::_get_time_ms();
+
+        let mut alpha = -50000;
+        let mut beta = 50000;
+        let mut current_depth = start_depth;
+        let mut pv_line_completed_so_far = Vec::new();
+        self.repetition_table.clear();
+
+        self.tt.lock().unwrap().increment_age();
+
+        loop {
+            if current_depth > depth {
+                break;
+            }
+
+            let start_time = Evaluator::_get_time_ms();
+
+            let score = self.legal_negamax(position, alpha, beta, current_depth, false, None);
+
+            if score <= alpha || score >= beta {
+                alpha = -50000;
+                beta = 50000;
+                continue;
+            }
+
+            alpha = score - 50;
+            beta = score + 50;
+
+            let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
+            if pv_line_found.len() > 0 {
+                pv_line_completed_so_far = pv_line_found;
+            }
+
+            if !self.is_running() {
+                break;
+            }
+
+            if thread_id == 0 {
+                self.print_info(position, start_time);
+            }
+            current_depth += 1;
+        }
+
+        if thread_id != 0 {
+            return None;
+        }
+
+        let mut b = chess::_move::BitPackedMove::default();
+
+        if pv_line_completed_so_far.len() > 0 {
+            b = pv_line_completed_so_far[0].get_move();
+            println!("bestmove {}", pv_line_completed_so_far[0].get_move());
+        } else {
+            println!("bestmove {}", chess::_move::BitPackedMove::default());
+        }
+
+        return Some(b);
+    }
+
+    pub fn legal_negamax(
+        &mut self,
+        position: &mut Position,
+        _alpha: i32,
+        beta: i32,
+        _depth: u8,
+        was_last_move_null: bool,
+        last_move: Option<BitPackedMove>,
+    ) -> i32 {
+        let mut alpha = _alpha;
+        let mut depth = _depth; // will be mutable later for search extensions
+        let mut alpha_move = chess::_move::BitPackedMove::default();
+
+        if self.result.nodes & 2047 == 0 {
+            self.set_running(self.check_time());
+        }
+
+        let is_in_check = position.is_in_check();
+
+        if !is_in_check && depth > 2 && !was_last_move_null {
+            position.make_null_move();
+            self.result.ply += 1;
+
+            let null_move_score = -self.negamax(position, -beta, -beta + 1, depth - 3, true, None);
+
+            position.unmake_move();
+            self.result.ply -= 1;
+
+            if null_move_score >= beta {
+                return beta;
+            }
+        }
+
+        if self.result.ply >= MAX_PLY as u32 {
+            return self.evaluate(position);
+        }
+
+        if is_in_check {
+            depth += 1;
+        }
+
+        if self
+            .repetition_table
+            .iter()
+            .filter(|&&x| x == position.hash)
+            .count()
+            >= 2
+        {
+            return -15;
+        }
+
+        self.result.nodes += 1;
+
+        let tt_entry = self
+            .tt
+            .lock()
+            .unwrap()
+            .probe_entry(position.hash, depth, alpha, beta);
+
+        if tt_entry.is_valid() {
+            if tt_entry.get_flag() == tt::TranspositionTableEntryFlag::EXACT && self.result.ply == 0
+            {
+                self.result.depth = depth;
+                self.result.score = tt_entry.get_value();
+            }
+            return tt_entry.get_value();
+        }
+
+        if depth == 1 {
+            let static_evaluation = self.evaluate(position);
+            if (static_evaluation + FUTILITY_MARGIN) < alpha {
+                return self.quiescence(position, alpha, beta);
+            }
+        }
+
+        if depth == 0 {
+            return self.quiescence(position, alpha, beta);
+        }
+
+        let mut legal_moves_searched = 0;
+        position.generate_legal_moves();
+        let mut queue = self.order_moves_p(
+            &position.move_list_stack[position.depth].clone(),
+            position,
+            last_move,
+        );
+
+        let mut found_pv = false;
+        let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
+
+        while let Some(pm) = queue.pop() {
+            position.make_move(&pm.m, false);
+
+            self.result.ply += 1;
+            self.repetition_table.push(position.hash);
+
+            let mut _score = 0;
+
+            // If we have found a pv move, then we need to search it with a null window
+            if found_pv {
+                _score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false, None);
+
+                // If our pv move fails, then we need to search again with a full window
+                if (_score > alpha) && (_score < beta) {
+                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None);
+                }
+            } else {
+                if legal_moves_searched == 0 {
+                    // If we have not found a pv move, and this is the first move, then we need to search with a full window
+                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None);
+                } else {
+                    if legal_moves_searched >= _FULL_DEPTH_MOVES
+                        && depth >= _REDUCTION_LIMIT
+                        && !position.is_in_check()
+                        && !pm.m.is_promotion()
+                        && !pm.m.is_capture()
+                    {
+                        _score =
+                            -self.negamax(position, -alpha - 1, -alpha, depth - 2, false, None);
+                    } else {
+                        _score = alpha + 1;
+                    }
+
+                    // If we found a better move during LMR
+                    if _score > alpha {
+                        _score =
+                            -self.negamax(position, -alpha - 1, -alpha, depth - 1, false, None);
+
+                        // if our LMR move fails, then we need to search again with a full window
+                        if (_score > alpha) && (_score < beta) {
+                            _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None);
+                        }
+                    }
+                }
+            }
+
+            self.result.ply -= 1;
+            self.repetition_table.pop();
+            position.unmake_move();
+
+            if !self.is_running() {
+                return 0;
+            }
+
+            legal_moves_searched += 1;
+
+            if _score >= beta {
+                self.tt.lock().unwrap().save(
+                    position.hash,
+                    depth,
+                    tt::TranspositionTableEntryFlag::BETA,
+                    beta,
+                    pm.m,
+                );
+
+                if self.killer_moves[0][self.result.ply as usize] != pm.m {
+                    self.killer_moves[1][self.result.ply as usize] =
+                        self.killer_moves[0][self.result.ply as usize];
+                    self.killer_moves[0][self.result.ply as usize] = pm.m;
+                }
+
+                self.counter_move_table[pm.m.get_from() as usize][pm.m.get_to() as usize] = pm.m;
+
+                // ==============
+                // cutof testing
+                // ==============
+
+                if legal_moves_searched == 1 {
+                    self.result.cutoffs.move_1 += 1;
+                }
+                if legal_moves_searched == 2 {
+                    self.result.cutoffs.move_2 += 1;
+                }
+                self.result.cutoffs.avg_cutoff_move_no += legal_moves_searched as f32;
+                self.result.cutoffs.total += 1;
+
+                // ==============
+                // ==============
+
+                return beta;
+            }
+
+            if _score > alpha {
+                hash_f = tt::TranspositionTableEntryFlag::EXACT;
+                alpha_move = pm.m;
+                found_pv = true;
+                alpha = _score;
+
+                if self.result.ply == 0 {
+                    self.result.depth = depth;
+                    self.result.score = _score;
+                    self.result.best_move = Some(pm.m);
+                }
+
+                self.history_moves[pm.m.get_piece() as usize][self.result.ply as usize] +=
+                    (depth * depth) as u32;
+            }
+        }
+
+        if legal_moves_searched == 0 {
+            if is_in_check {
+                alpha = -49000 + self.result.ply as i32;
+            } else {
+                alpha = 0;
+            }
+        }
+
+        self.tt
+            .lock()
+            .unwrap()
+            .save(position.hash, depth, hash_f, alpha, alpha_move);
+
+        return alpha;
     }
 
     pub fn get_best_move(
@@ -287,7 +594,10 @@ impl Evaluator {
         }
 
         let mut legal_moves_searched = 0;
-        let mut queue = self.order_moves_p(position.generate_moves(false), position, last_move);
+        position.generate_legal_moves();
+        let legal_moves = position.move_list_stack[position.depth].clone();
+        let mut queue = self.order_moves_p(&legal_moves, position, last_move);
+        // let mut queue = self.order_moves_p(&position.generate_moves(false), position, last_move);
         let mut found_pv = false;
         let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
 
@@ -436,21 +746,19 @@ impl Evaluator {
             alpha = stand_pat
         }
 
-        let mut queue = self.order_moves_p(position.generate_moves(true), position, None);
+        position.generate_legal_moves();
+        let legal_moves = position.move_list_stack[position.depth].clone();
+        let mut queue = self.order_moves_p(&legal_moves, position, None);
+        // let mut queue = self.order_moves_p(&position.generate_moves(true), position, None);
         while let Some(pm) = queue.pop() {
             if !pm.m.is_capture() {
                 continue;
             }
 
-            let is_legal_capture = position.make_move(&pm.m, true);
-            if !is_legal_capture {
-                continue;
-            }
-
+            position.make_move(&pm.m, true);
             self.result.ply += 1;
             let score = -self.quiescence(position, -beta, -alpha);
             self.result.ply -= 1;
-
             position.unmake_move();
 
             if !self.is_running() {
@@ -591,7 +899,7 @@ impl Evaluator {
 
     fn order_moves_p(
         &mut self,
-        moves: Vec<chess::_move::BitPackedMove>,
+        moves: &Vec<chess::_move::BitPackedMove>,
         position: &mut Position,
         last_move: Option<BitPackedMove>,
     ) -> BinaryHeap<PrioritizedMove> {
@@ -607,16 +915,47 @@ impl Evaluator {
         }
 
         for m in moves {
-            let priority: u32 = self.get_move_priority(m, m == tt_move, last_move);
-            queue.push(PrioritizedMove { m, priority })
+            let priority: u32 = self.get_move_priority(*m, *m == tt_move, last_move);
+            queue.push(PrioritizedMove { m: *m, priority })
         }
 
         queue
     }
 
     pub fn evaluate(&mut self, position: &mut Position) -> i32 {
-        let material_score = position.material[position.turn as usize]
-            - position.material[(!position.turn) as usize];
+        // let game_phase_score = position.get_game_phase_score();
+
+        let mut white_material_score = 0;
+        let mut black_material_score = 0;
+
+        for piece in 0..=5 {
+            white_material_score +=
+                position.bitboards[piece].count_ones() as i32 * SIMPLE_PIECE_SCORES[piece as usize];
+            black_material_score += position.bitboards[piece + 6].count_ones() as i32
+                * SIMPLE_PIECE_SCORES[(piece + 6) as usize];
+
+            // let mut white_pieces = position.bitboards[piece];
+            // while white_pieces != 0 {
+            //     // let square = utils::pop_lsb(&mut white_pieces) as usize;
+            //     // white_material_score += _get_piece_value_bl(piece, square, game_phase_score);
+            //     white_material_score += SIMPLE_PIECE_SCORES[piece as usize];
+            // }
+
+            // let mut black_pieces = position.bitboards[piece + 6];
+            // while black_pieces != 0 {
+            //     // let square = utils::pop_lsb(&mut black_pieces) as usize;
+            //     // black_material_score += _get_piece_value_bl(piece + 6, square, game_phase_score);
+            //     black_material_score += SIMPLE_PIECE_SCORES[(piece + 6) as usize];
+            // }
+        }
+
+        // let material_score =
+        //     white_material_score - black_material_score * (position.turn as i32 * -1);
+
+        let material_score = match position.turn {
+            Color::White => white_material_score - black_material_score,
+            Color::Black => black_material_score - white_material_score,
+        };
 
         return material_score
             + self.evaluate_pawn_structure(position)

@@ -44,9 +44,9 @@ impl UCI {
             };
 
             /*
-            * For reference to the UCI protocol, see:
-            * https://www.wbec-ridderkerk.nl/html/UCIProtocol.html
-            */
+             * For reference to the UCI protocol, see:
+             * https://www.wbec-ridderkerk.nl/html/UCIProtocol.html
+             */
             match tokens[0] {
                 "uci" => {
                     println!("id name redtail_vx");
@@ -70,7 +70,6 @@ impl UCI {
 
                 // The rest of the commands below are custom convenience
                 // commands. Mostly used for debugging, but are useful beyond that.
-
                 "perft" => self.perft(tokens),
 
                 "draw" => self.position.draw(),
@@ -173,7 +172,7 @@ impl UCI {
             eval_position.set_fen(String::from(position_fen_clone));
 
             let mut evaluator = Evaluator::new();
-            evaluator.get_best_move(
+            evaluator.legal_get_best_move(
                 &mut eval_position,
                 search_options,
                 is_searching,

@@ -1,6 +1,8 @@
 pub mod attacks;
 pub mod constants;
 
+use std::collections::HashMap;
+
 use crate::{
     chess::{
         self,
@@ -39,6 +41,8 @@ pub struct Position {
     pub material: [i32; 2],
     pub move_list_stack: Vec<Vec<chess::_move::BitPackedMove>>,
     pub depth: usize,
+
+    pub pinner_map: HashMap<u64, u64>,
 
     pub rand_seed: u32,
 
@@ -107,6 +111,7 @@ impl Board for Position {
         // add the move to the history
         let history_entry = self.to_history_entry();
         self.position_stack.push(history_entry);
+        self.depth += 1;
 
         self.turn = !self.turn;
         self.hash ^= self.zobrist_turn_key;
@@ -140,6 +145,8 @@ impl Board for Position {
 
             move_list_stack: vec![Vec::with_capacity(256); 128],
             depth: 0,
+
+            pinner_map: HashMap::with_capacity(64),
         };
 
         pos.init_zorbrist_keys();
@@ -1208,6 +1215,10 @@ mod tests {
 
 const OPENING_GAME_PHASE_SCORE: i32 = 6192;
 const ENDGAME_PHASE_SCORE: i32 = 518;
+
+pub const SIMPLE_PIECE_SCORES: [i32; 12] = [
+    100, 320, 330, 500, 900, 20000, 100, 320, 330, 500, 900, 20000,
+];
 
 const OPENING_PIECE_SCORES: [i32; 12] = [
     82, 337, 365, 477, 1025, 12000, 82, 337, 365, 477, 1025, 12000,
