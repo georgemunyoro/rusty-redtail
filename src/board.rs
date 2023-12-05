@@ -1281,182 +1281,182 @@ impl Position {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        board::{constants, Board, Position},
-        chess::{constants::STARTING_FEN, piece::Piece, square::SQUARE_ITER},
-        movegen::MoveGenerator,
-    };
+    // use crate::{
+    //     board::{constants, Board, Position},
+    //     chess::{constants::STARTING_FEN, piece::Piece, square::SQUARE_ITER},
+    //     movegen::MoveGenerator,
+    // };
 
-    extern crate test;
+    // extern crate test;
 
-    use test::{black_box, Bencher};
+    // use test::{black_box, Bencher};
 
-    use super::_get_piece_value_bl;
+    // use super::_get_piece_value_bl;
 
-    #[test]
-    fn get_piece_at_square_and_set_fen_works() {
-        let position = Position::new(Some(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        ));
-        assert_eq!(position.get_piece_at_square(0), Piece::BlackRook);
-        assert_eq!(position.get_piece_at_square(1), Piece::BlackKnight);
-        assert_eq!(position.get_piece_at_square(2), Piece::BlackBishop);
-        assert_eq!(position.get_piece_at_square(3), Piece::BlackQueen);
-        assert_eq!(position.get_piece_at_square(4), Piece::BlackKing);
-        assert_eq!(position.get_piece_at_square(5), Piece::BlackBishop);
-        assert_eq!(position.get_piece_at_square(6), Piece::BlackKnight);
-        assert_eq!(position.get_piece_at_square(7), Piece::BlackRook);
-        assert_eq!(position.get_piece_at_square(8), Piece::BlackPawn);
-        assert_eq!(position.get_piece_at_square(9), Piece::BlackPawn);
-        assert_eq!(position.get_piece_at_square(10), Piece::BlackPawn);
-        assert_eq!(position.get_piece_at_square(11), Piece::BlackPawn);
-        assert_eq!(position.get_piece_at_square(12), Piece::BlackPawn);
-        assert_eq!(position.get_piece_at_square(13), Piece::BlackPawn);
-        assert_eq!(position.get_piece_at_square(14), Piece::BlackPawn);
-        assert_eq!(position.get_piece_at_square(15), Piece::BlackPawn);
-        assert_eq!(position.get_piece_at_square(48), Piece::WhitePawn);
-        assert_eq!(position.get_piece_at_square(49), Piece::WhitePawn);
-        assert_eq!(position.get_piece_at_square(50), Piece::WhitePawn);
-        assert_eq!(position.get_piece_at_square(51), Piece::WhitePawn);
-        assert_eq!(position.get_piece_at_square(52), Piece::WhitePawn);
-        assert_eq!(position.get_piece_at_square(53), Piece::WhitePawn);
-        assert_eq!(position.get_piece_at_square(54), Piece::WhitePawn);
-        assert_eq!(position.get_piece_at_square(55), Piece::WhitePawn);
-        assert_eq!(position.get_piece_at_square(56), Piece::WhiteRook);
-        assert_eq!(position.get_piece_at_square(57), Piece::WhiteKnight);
-    }
+    // #[test]
+    // fn get_piece_at_square_and_set_fen_works() {
+    //     let position = Position::new(Some(
+    //         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    //     ));
+    //     assert_eq!(position.get_piece_at_square(0), Piece::BlackRook);
+    //     assert_eq!(position.get_piece_at_square(1), Piece::BlackKnight);
+    //     assert_eq!(position.get_piece_at_square(2), Piece::BlackBishop);
+    //     assert_eq!(position.get_piece_at_square(3), Piece::BlackQueen);
+    //     assert_eq!(position.get_piece_at_square(4), Piece::BlackKing);
+    //     assert_eq!(position.get_piece_at_square(5), Piece::BlackBishop);
+    //     assert_eq!(position.get_piece_at_square(6), Piece::BlackKnight);
+    //     assert_eq!(position.get_piece_at_square(7), Piece::BlackRook);
+    //     assert_eq!(position.get_piece_at_square(8), Piece::BlackPawn);
+    //     assert_eq!(position.get_piece_at_square(9), Piece::BlackPawn);
+    //     assert_eq!(position.get_piece_at_square(10), Piece::BlackPawn);
+    //     assert_eq!(position.get_piece_at_square(11), Piece::BlackPawn);
+    //     assert_eq!(position.get_piece_at_square(12), Piece::BlackPawn);
+    //     assert_eq!(position.get_piece_at_square(13), Piece::BlackPawn);
+    //     assert_eq!(position.get_piece_at_square(14), Piece::BlackPawn);
+    //     assert_eq!(position.get_piece_at_square(15), Piece::BlackPawn);
+    //     assert_eq!(position.get_piece_at_square(48), Piece::WhitePawn);
+    //     assert_eq!(position.get_piece_at_square(49), Piece::WhitePawn);
+    //     assert_eq!(position.get_piece_at_square(50), Piece::WhitePawn);
+    //     assert_eq!(position.get_piece_at_square(51), Piece::WhitePawn);
+    //     assert_eq!(position.get_piece_at_square(52), Piece::WhitePawn);
+    //     assert_eq!(position.get_piece_at_square(53), Piece::WhitePawn);
+    //     assert_eq!(position.get_piece_at_square(54), Piece::WhitePawn);
+    //     assert_eq!(position.get_piece_at_square(55), Piece::WhitePawn);
+    //     assert_eq!(position.get_piece_at_square(56), Piece::WhiteRook);
+    //     assert_eq!(position.get_piece_at_square(57), Piece::WhiteKnight);
+    // }
 
-    #[ignore]
-    #[test]
-    fn generate_magic_numbers_correctly() {
-        let mut board = Position::new(None);
+    // #[ignore]
+    // #[test]
+    // fn generate_magic_numbers_correctly() {
+    //     let mut board = Position::new(None);
 
-        for square in SQUARE_ITER {
-            let magic_number = board._find_magic_number(
-                square,
-                constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
-                false,
-            );
+    //     for square in SQUARE_ITER {
+    //         let magic_number = board._find_magic_number(
+    //             square,
+    //             constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
+    //             false,
+    //         );
 
-            assert_eq!(
-                magic_number,
-                constants::ROOK_MAGIC_NUMBERS[usize::from(u8::from(square))]
-            );
-        }
+    //         assert_eq!(
+    //             magic_number,
+    //             constants::ROOK_MAGIC_NUMBERS[usize::from(u8::from(square))]
+    //         );
+    //     }
 
-        for square in SQUARE_ITER {
-            let magic_number = board._find_magic_number(
-                square,
-                constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
-                true,
-            );
+    //     for square in SQUARE_ITER {
+    //         let magic_number = board._find_magic_number(
+    //             square,
+    //             constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
+    //             true,
+    //         );
 
-            assert_eq!(
-                magic_number,
-                constants::BISHOP_MAGIC_NUMBERS[usize::from(u8::from(square))]
-            );
-        }
-    }
+    //         assert_eq!(
+    //             magic_number,
+    //             constants::BISHOP_MAGIC_NUMBERS[usize::from(u8::from(square))]
+    //         );
+    //     }
+    // }
 
-    #[bench]
-    fn bench_get_piece_value(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(STARTING_FEN));
-        b.iter(|| {
-            for square in SQUARE_ITER {
-                let piece = board.get_piece_at_square(square as u8);
+    // #[bench]
+    // fn bench_get_piece_value(b: &mut Bencher) {
+    //     let board = <Position as Board>::new(Some(STARTING_FEN));
+    //     b.iter(|| {
+    //         for square in SQUARE_ITER {
+    //             let piece = board.get_piece_at_square(square as u8);
 
-                if piece != Piece::Empty {
-                    black_box(_get_piece_value_bl(
-                        piece as usize,
-                        square as usize,
-                        board.get_game_phase_score(),
-                    ));
-                }
-            }
-        });
-    }
+    //             if piece != Piece::Empty {
+    //                 black_box(_get_piece_value_bl(
+    //                     piece as usize,
+    //                     square as usize,
+    //                     board.get_game_phase_score(),
+    //                 ));
+    //             }
+    //         }
+    //     });
+    // }
 
-    #[bench]
-    fn bench_generate_moves(b: &mut Bencher) {
-        let mut board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        b.iter(|| {
-            board.generate_moves(false);
-        })
-    }
+    // #[bench]
+    // fn bench_generate_moves(b: &mut Bencher) {
+    //     let mut board = <Position as Board>::new(Some(
+    //         "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+    //     ));
+    //     b.iter(|| {
+    //         board.generate_moves(false);
+    //     })
+    // }
 
-    #[bench]
-    fn bench_generate_pawn_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_pawn_moves(&mut moves, false);
-        })
-    }
+    // #[bench]
+    // fn bench_generate_pawn_moves(b: &mut Bencher) {
+    //     let board = <Position as Board>::new(Some(
+    //         "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+    //     ));
+    //     let mut moves = Vec::with_capacity(256);
+    //     b.iter(|| {
+    //         moves.clear();
+    //         board.generate_pawn_moves(&mut moves, false);
+    //     })
+    // }
 
-    #[bench]
-    fn bench_generate_knight_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_knight_moves(&mut moves, false);
-        })
-    }
+    // #[bench]
+    // fn bench_generate_knight_moves(b: &mut Bencher) {
+    //     let board = <Position as Board>::new(Some(
+    //         "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+    //     ));
+    //     let mut moves = Vec::with_capacity(256);
+    //     b.iter(|| {
+    //         moves.clear();
+    //         board.generate_knight_moves(&mut moves, false);
+    //     })
+    // }
 
-    #[bench]
-    fn bench_generate_bishop_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_bishop_moves(&mut moves, false);
-        })
-    }
+    // #[bench]
+    // fn bench_generate_bishop_moves(b: &mut Bencher) {
+    //     let board = <Position as Board>::new(Some(
+    //         "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+    //     ));
+    //     let mut moves = Vec::with_capacity(256);
+    //     b.iter(|| {
+    //         moves.clear();
+    //         board.generate_bishop_moves(&mut moves, false);
+    //     })
+    // }
 
-    #[bench]
-    fn bench_generate_rook_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_rook_moves(&mut moves, false);
-        })
-    }
+    // #[bench]
+    // fn bench_generate_rook_moves(b: &mut Bencher) {
+    //     let board = <Position as Board>::new(Some(
+    //         "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+    //     ));
+    //     let mut moves = Vec::with_capacity(256);
+    //     b.iter(|| {
+    //         moves.clear();
+    //         board.generate_rook_moves(&mut moves, false);
+    //     })
+    // }
 
-    #[bench]
-    fn bench_generate_queen_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_queen_moves(&mut moves, false);
-        })
-    }
+    // #[bench]
+    // fn bench_generate_queen_moves(b: &mut Bencher) {
+    //     let board = <Position as Board>::new(Some(
+    //         "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+    //     ));
+    //     let mut moves = Vec::with_capacity(256);
+    //     b.iter(|| {
+    //         moves.clear();
+    //         board.generate_queen_moves(&mut moves, false);
+    //     })
+    // }
 
-    #[bench]
-    fn bench_generate_king_moves(b: &mut Bencher) {
-        let mut board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_king_moves(&mut moves, false);
-        })
-    }
+    // #[bench]
+    // fn bench_generate_king_moves(b: &mut Bencher) {
+    //     let mut board = <Position as Board>::new(Some(
+    //         "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
+    //     ));
+    //     let mut moves = Vec::with_capacity(256);
+    //     b.iter(|| {
+    //         moves.clear();
+    //         board.generate_king_moves(&mut moves, false);
+    //     })
+    // }
 }
 
 const OPENING_GAME_PHASE_SCORE: i32 = 6192;

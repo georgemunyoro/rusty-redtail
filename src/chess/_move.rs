@@ -178,11 +178,11 @@ pub struct PrioritizedMove {
 }
 
 impl PrioritizedMove {
-    pub fn new(m: BitPackedMove, priority: u32) -> Self {
+    pub fn _new(m: BitPackedMove, priority: u32) -> Self {
         Self { priority, m }
     }
 
-    pub fn default() -> Self {
+    pub fn _default() -> Self {
         Self {
             priority: 0,
             m: BitPackedMove::default(),
