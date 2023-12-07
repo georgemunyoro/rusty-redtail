@@ -49,7 +49,7 @@ fn _cutoff_testing() {
     let mut index = 0;
 
     for fen in _Y {
-        position.set_fen(String::from(fen));
+        position.set_fen(fen);
         let mut evaluator = search::evaluate::Evaluator::new();
 
         let mut search_options = search::options::SearchOptions::new();

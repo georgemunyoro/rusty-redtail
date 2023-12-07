@@ -28,8 +28,7 @@ impl UCI {
             is_searching: Arc::new(Mutex::new(false)),
             search_threads: vec![],
         };
-        uci.position
-            .set_fen(String::from(chess::constants::STARTING_FEN));
+        uci.position.set_fen(chess::constants::STARTING_FEN);
         return uci;
     }
 
@@ -44,9 +43,9 @@ impl UCI {
             };
 
             /*
-            * For reference to the UCI protocol, see:
-            * https://www.wbec-ridderkerk.nl/html/UCIProtocol.html
-            */
+             * For reference to the UCI protocol, see:
+             * https://www.wbec-ridderkerk.nl/html/UCIProtocol.html
+             */
             match tokens[0] {
                 "uci" => {
                     println!("id name redtail_vx");
@@ -56,9 +55,7 @@ impl UCI {
 
                 "isready" => println!("readyok"),
 
-                "ucinewgame" => self
-                    .position
-                    .set_fen(String::from(chess::constants::STARTING_FEN)),
+                "ucinewgame" => self.position.set_fen(chess::constants::STARTING_FEN),
 
                 "position" => self.handle_position(tokens),
 
@@ -70,7 +67,6 @@ impl UCI {
 
                 // The rest of the commands below are custom convenience
                 // commands. Mostly used for debugging, but are useful beyond that.
-
                 "perft" => self.perft(tokens),
 
                 "draw" => self.position.draw(),
@@ -89,8 +85,7 @@ impl UCI {
         }
 
         if tokens[1] == "startpos" {
-            self.position
-                .set_fen(String::from(chess::constants::STARTING_FEN));
+            self.position.set_fen(chess::constants::STARTING_FEN);
 
             // Handle moves
             if tokens.len() > 2 && tokens[2] == "moves" {
@@ -105,7 +100,7 @@ impl UCI {
                 fen.push_str(" ");
             }
             fen.pop();
-            self.position.set_fen(String::from(fen));
+            self.position.set_fen(fen.as_str());
 
             // Handle moves
             if tokens.len() > 8 && tokens[8] == "moves" {
@@ -147,7 +142,7 @@ impl UCI {
         let tt = Arc::clone(&self.shared_transposition_table);
         let is_searching = Arc::clone(&self.is_searching);
         self.search_threads.push(self.create_search_thread(
-            self.position.as_fen(),
+            self.position.as_fen().as_str(),
             options,
             is_searching,
             tt,
@@ -158,19 +153,19 @@ impl UCI {
     /// Creates and starts a search thread
     fn create_search_thread(
         &self,
-        position_fen: String,
+        position_fen: &str,
         search_options: SearchOptions,
         is_searching: Arc<Mutex<bool>>,
         transposition_table: Arc<Mutex<tt::TranspositionTable>>,
         thread_id: usize,
     ) -> std::thread::JoinHandle<()> {
-        let position_fen_clone = String::from(position_fen.clone());
+        let position_fen_clone = Arc::new(String::from(position_fen)); // position_fen.clone();
         let is_searching = Arc::clone(&is_searching);
         let transpos_table_clone = Arc::clone(&transposition_table);
 
         return std::thread::spawn(move || {
             let mut eval_position = board::Position::new(None);
-            eval_position.set_fen(String::from(position_fen_clone));
+            eval_position.set_fen(position_fen_clone.as_str());
 
             let mut evaluator = Evaluator::new();
             evaluator.get_best_move(
