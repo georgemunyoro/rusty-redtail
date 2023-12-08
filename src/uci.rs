@@ -1,181 +1,207 @@
 use std::{
-    io,
-    sync::{Arc, Mutex},
+    io::{self, BufRead},
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc,
+    },
 };
 
 use crate::{
-    board::{self, Board, Position},
-    chess,
+    board::{Board, Position},
+    chess::constants::STARTING_FEN,
     movegen::MoveGenerator,
     search::evaluate::*,
     search::options::*,
     search::utils::*,
-    tt,
+    tt::TranspositionTable,
 };
 
+#[derive(Debug)]
+enum UciPositionCommandKind {
+    StartPos,
+    Fen(String),
+}
+
+#[derive(Debug)]
+enum UciCommand {
+    Uci,
+    IsReady,
+    UciNewGame,
+    Position(UciPositionCommandKind, Option<Vec<String>>),
+    Go(SearchOptions),
+    Stop,
+    Quit,
+
+    // Custom commands
+    Perft(u8),
+    Draw,
+}
+
+impl FromStr for UciCommand {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let tokens = s.split_whitespace().collect::<Vec<&str>>();
+
+        let uci_command_kind = *tokens.get(0).ok_or_else(|| "Empty command")?;
+
+        match uci_command_kind {
+            "uci" => Ok(UciCommand::Uci),
+            "isready" => Ok(UciCommand::IsReady),
+            "ucinewgame" => Ok(UciCommand::UciNewGame),
+            "stop" => Ok(UciCommand::Stop),
+            "quit" => Ok(UciCommand::Quit),
+            "go" => Ok(UciCommand::Go(SearchOptions::from(tokens.clone()))),
+
+            "position" => {
+                let position_command_kind_token =
+                    *tokens.get(1).ok_or_else(|| "Invalid position command")?;
+
+                let position_command_kind = match position_command_kind_token {
+                    "startpos" => UciPositionCommandKind::StartPos,
+                    "fen" => {
+                        let mut fen = String::new();
+                        for i in 2..8 {
+                            fen.push_str(tokens[i]);
+                            fen.push_str(" ");
+                        }
+                        fen.pop();
+                        UciPositionCommandKind::Fen(fen)
+                    }
+                    _ => return Err("Invalid position command"),
+                };
+
+                let optional_moves_token_position = match position_command_kind {
+                    UciPositionCommandKind::Fen(_) => 8,
+                    UciPositionCommandKind::StartPos => 2,
+                };
+
+                let moves = if tokens
+                    .get(optional_moves_token_position)
+                    .is_some_and(|&t| t == "moves")
+                {
+                    Some(
+                        tokens[optional_moves_token_position..]
+                            .to_vec()
+                            .iter()
+                            .map(|t| t.to_string())
+                            .collect(),
+                    )
+                } else {
+                    None
+                };
+
+                Ok(UciCommand::Position(position_command_kind, moves))
+            }
+
+            // Custom commands
+            "perft" => Ok(UciCommand::Perft(
+                tokens
+                    .get(1)
+                    .ok_or_else(|| "Invalid perft command")?
+                    .parse::<u8>()
+                    .map_err(|_| "Invalid perft command")?,
+            )),
+
+            "draw" => Ok(UciCommand::Draw),
+
+            _ => Err("Unknown command"),
+        }
+    }
+}
+
 pub struct UCI {
-    position: Position,
-    shared_transposition_table: Arc<Mutex<tt::TranspositionTable>>,
-    is_searching: Arc<Mutex<bool>>,
-    search_threads: Vec<std::thread::JoinHandle<()>>,
+    is_searching: Arc<AtomicBool>,
+    controller: mpsc::Sender<UciCommand>,
 }
 
 impl UCI {
     pub fn new() -> UCI {
-        let mut uci = UCI {
-            position: Position::new(None),
-            shared_transposition_table: Arc::new(Mutex::new(tt::TranspositionTable::new(2048))),
-            is_searching: Arc::new(Mutex::new(false)),
-            search_threads: vec![],
-        };
-        uci.position.set_fen(chess::constants::STARTING_FEN);
-        return uci;
+        let (controller, rx) = mpsc::channel::<UciCommand>();
+        let is_searching = Arc::new(AtomicBool::new(false));
+
+        let thread_is_searching = is_searching.clone();
+        std::thread::spawn(move || UCIController::run(rx, thread_is_searching));
+
+        UCI {
+            is_searching,
+            controller,
+        }
     }
 
     pub fn uci_loop(&mut self) {
-        loop {
-            let mut buffer = String::new();
-            io::stdin().read_line(&mut buffer).unwrap();
-            let tokens = Iterator::collect::<Vec<&str>>(buffer.trim().split_whitespace());
+        let stream = io::stdin().lock();
+        for line in stream.lines() {
+            match line {
+                Ok(line) => match UciCommand::from_str(line.as_str()) {
+                    Ok(UciCommand::Uci) => {
+                        println!("id name redtail_vx");
+                        println!("id author George T.G. Munyoro");
+                        println!("uciok");
+                    }
 
-            if tokens.len() == 0 {
-                continue;
-            };
+                    Ok(UciCommand::IsReady) => println!("readyok"),
 
-            /*
-             * For reference to the UCI protocol, see:
-             * https://www.wbec-ridderkerk.nl/html/UCIProtocol.html
-             */
-            match tokens[0] {
-                "uci" => {
-                    println!("id name redtail_vx");
-                    println!("id author George T.G. Munyoro");
-                    println!("uciok");
+                    Ok(UciCommand::Stop) => self.is_searching.store(false, Ordering::SeqCst),
+
+                    Ok(UciCommand::Quit) => break,
+
+                    Ok(command) => self.controller.send(command).unwrap(),
+
+                    Err(e) => {
+                        println!("Error: {}", e);
+                    }
+                },
+
+                Err(e) => println!("Error: {}", e),
+            }
+        }
+    }
+}
+
+struct UCIController();
+
+impl UCIController {
+    fn run(rx: mpsc::Receiver<UciCommand>, is_searching: Arc<AtomicBool>) {
+        let mut position = Position::new(Some(STARTING_FEN));
+        let shared_transposition_table = Box::new(TranspositionTable::new(2048));
+        let mut evaluator = Evaluator::new(shared_transposition_table, is_searching.clone());
+
+        for command in &rx {
+            match command {
+                UciCommand::Go(search_options) => {
+                    is_searching.store(true, Ordering::SeqCst);
+                    evaluator.get_best_move(&mut position, search_options, 0, 1);
                 }
 
-                "isready" => println!("readyok"),
+                UciCommand::Position(kind, moves) => {
+                    position.set_fen(
+                        match kind {
+                            UciPositionCommandKind::StartPos => String::from(STARTING_FEN),
+                            UciPositionCommandKind::Fen(fen) => String::from(fen),
+                        }
+                        .as_str(),
+                    );
 
-                "ucinewgame" => self.position.set_fen(chess::constants::STARTING_FEN),
-
-                "position" => self.handle_position(tokens),
-
-                "go" => self.go(tokens),
-
-                "stop" => self.stop_searching(),
-
-                "quit" => break,
-
-                // The rest of the commands below are custom convenience
-                // commands. Mostly used for debugging, but are useful beyond that.
-                "perft" => self.perft(tokens),
-
-                "draw" => self.position.draw(),
-
-                _ => {
-                    println!("Unknown command: {}", buffer.trim());
+                    if let Some(moves) = moves {
+                        for m in moves {
+                            // TODO: Handle invalid moves gracefully
+                            let bitpacked_move = parse_move(&mut position, m.as_str()).unwrap();
+                            position.make_move(bitpacked_move, false);
+                        }
+                    }
                 }
+
+                UciCommand::UciNewGame => position.set_fen(STARTING_FEN),
+
+                UciCommand::Draw => position.draw(),
+                UciCommand::Perft(depth) => {
+                    println!("Perft({}) = {}", depth, position.perft(depth))
+                }
+
+                _ => println!("Unknown command"),
             }
         }
-    }
-
-    // Set the position
-    fn handle_position(&mut self, tokens: Vec<&str>) {
-        if tokens.len() < 2 {
-            return;
-        }
-
-        if tokens[1] == "startpos" {
-            self.position.set_fen(chess::constants::STARTING_FEN);
-
-            // Handle moves
-            if tokens.len() > 2 && tokens[2] == "moves" {
-                parse_and_make_moves(&mut self.position, tokens[3..].to_vec());
-            }
-        }
-
-        if tokens[1] == "fen" && tokens.len() >= 8 {
-            let mut fen = String::new();
-            for i in 2..8 {
-                fen.push_str(tokens[i]);
-                fen.push_str(" ");
-            }
-            fen.pop();
-            self.position.set_fen(fen.as_str());
-
-            // Handle moves
-            if tokens.len() > 8 && tokens[8] == "moves" {
-                parse_and_make_moves(&mut self.position, tokens[9..].to_vec());
-            }
-        }
-    }
-
-    /// Stops any current searches and prints the best move if any
-    fn stop_searching(&mut self) {
-        {
-            let mut r = self.is_searching.lock().unwrap();
-            *r = false;
-        }
-
-        while self.search_threads.len() > 0 {
-            let cur_thread = self.search_threads.pop();
-            cur_thread.unwrap().join().unwrap();
-        }
-    }
-
-    /// Prints perft stats for the current position at the given depth
-    fn perft(&mut self, tokens: Vec<&str>) {
-        if tokens.len() < 2 {
-            return;
-        }
-        let depth = tokens[1].parse::<u8>().unwrap();
-        let start_time = std::time::Instant::now();
-        let nodes = self.position.perft(depth);
-        let end_time = std::time::Instant::now();
-        let elapsed = end_time.duration_since(start_time);
-        let nps = nodes as f64 / (elapsed.as_millis() as f64 / 1000.0);
-        println!("nodes {} nps {}", nodes, nps);
-    }
-
-    /// Start searching with given options
-    fn go(&mut self, tokens: Vec<&str>) {
-        let options = SearchOptions::from(tokens);
-        let tt = Arc::clone(&self.shared_transposition_table);
-        let is_searching = Arc::clone(&self.is_searching);
-        self.search_threads.push(self.create_search_thread(
-            self.position.as_fen().as_str(),
-            options,
-            is_searching,
-            tt,
-            0,
-        ));
-    }
-
-    /// Creates and starts a search thread
-    fn create_search_thread(
-        &self,
-        position_fen: &str,
-        search_options: SearchOptions,
-        is_searching: Arc<Mutex<bool>>,
-        transposition_table: Arc<Mutex<tt::TranspositionTable>>,
-        thread_id: usize,
-    ) -> std::thread::JoinHandle<()> {
-        let position_fen_clone = Arc::new(String::from(position_fen)); // position_fen.clone();
-        let is_searching = Arc::clone(&is_searching);
-        let transpos_table_clone = Arc::clone(&transposition_table);
-
-        return std::thread::spawn(move || {
-            let mut eval_position = board::Position::new(None);
-            eval_position.set_fen(position_fen_clone.as_str());
-
-            let mut evaluator = Evaluator::new();
-            evaluator.get_best_move(
-                &mut eval_position,
-                search_options,
-                is_searching,
-                transpos_table_clone,
-                thread_id,
-                1 + thread_id as u8,
-            );
-        });
     }
 }

@@ -1,6 +1,6 @@
 use std::{
     collections::BinaryHeap,
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicBool, Arc},
 };
 
 use crate::{
@@ -29,31 +29,33 @@ pub struct PositionEvaluation {
 }
 
 pub struct Evaluator {
-    pub running: Arc<Mutex<bool>>,
+    pub running: Arc<AtomicBool>,
     pub result: PositionEvaluation,
     pub killer_moves: [[chess::_move::BitPackedMove; MAX_PLY]; 2],
     pub history_moves: [[u32; MAX_PLY]; 12],
     pub started_at: u128,
     pub options: SearchOptions,
-    pub tt: Arc<Mutex<TranspositionTable>>,
+    pub tt: Box<TranspositionTable>,
     pub repetition_table: Vec<u64>,
     counter_move_table: [[BitPackedMove; 64]; 64],
 }
 
 impl Evaluator {
     fn is_running(&mut self) -> bool {
-        let r = self.running.lock().unwrap();
-        return *r;
+        // let r = self.running.lock().unwrap();
+        // return *r;
+        return self.running.load(std::sync::atomic::Ordering::Relaxed);
     }
 
     fn set_running(&mut self, b: bool) {
-        let mut r = self.running.lock().unwrap();
-        *r = b;
+        // let mut r = self.running.lock().unwrap();
+        // *r = b;
+        self.running.store(b, std::sync::atomic::Ordering::Relaxed);
     }
 
-    pub fn new() -> Evaluator {
+    pub fn new(tt: Box<TranspositionTable>, running: Arc<AtomicBool>) -> Evaluator {
         return Evaluator {
-            running: Arc::new(Mutex::new(false)),
+            running,
             result: PositionEvaluation {
                 score: 0,
                 best_move: None,
@@ -66,7 +68,7 @@ impl Evaluator {
             history_moves: [[0; MAX_PLY]; 12],
             started_at: 0,
             options: SearchOptions::new(),
-            tt: Arc::new(Mutex::new(TranspositionTable::new(1024))),
+            tt,
             repetition_table: Vec::with_capacity(150),
             counter_move_table: [[BitPackedMove::default(); 64]; 64],
         };
@@ -118,8 +120,6 @@ impl Evaluator {
         &mut self,
         position: &mut Position,
         options: SearchOptions,
-        running: Arc<Mutex<bool>>,
-        transposition_table: Arc<Mutex<TranspositionTable>>,
         thread_id: usize,
         start_depth: u8,
     ) -> Option<chess::_move::BitPackedMove> {
@@ -140,8 +140,6 @@ impl Evaluator {
         self.options = options;
         self.set_move_time(position);
 
-        self.running = running;
-        self.tt = transposition_table;
         self.started_at = Evaluator::_get_time_ms();
 
         let mut alpha = -50000;
@@ -150,7 +148,7 @@ impl Evaluator {
         let mut pv_line_completed_so_far = Vec::new();
         self.repetition_table.clear();
 
-        self.tt.lock().unwrap().increment_age();
+        self.tt.increment_age();
 
         loop {
             if current_depth > depth {
@@ -170,7 +168,7 @@ impl Evaluator {
             alpha = score - 50;
             beta = score + 50;
 
-            let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
+            let pv_line_found = self.tt.get_pv_line(position);
             if pv_line_found.len() > 0 {
                 pv_line_completed_so_far = pv_line_found;
             }
@@ -254,11 +252,7 @@ impl Evaluator {
 
         self.result.nodes += 1;
 
-        let tt_entry = self
-            .tt
-            .lock()
-            .unwrap()
-            .probe_entry(position.hash, depth, alpha, beta);
+        let tt_entry = self.tt.probe_entry(position.hash, depth, alpha, beta);
 
         if tt_entry.is_valid() {
             if tt_entry.get_flag() == tt::TranspositionTableEntryFlag::EXACT && self.result.ply == 0
@@ -345,7 +339,7 @@ impl Evaluator {
             legal_moves_searched += 1;
 
             if _score >= beta {
-                self.tt.lock().unwrap().save(
+                self.tt.save(
                     position.hash,
                     depth,
                     tt::TranspositionTableEntryFlag::BETA,
@@ -406,8 +400,6 @@ impl Evaluator {
         }
 
         self.tt
-            .lock()
-            .unwrap()
             .save(position.hash, depth, hash_f, alpha, alpha_move);
 
         return alpha;
@@ -467,8 +459,7 @@ impl Evaluator {
         let stop_time: u128 = Evaluator::_get_time_ms();
         let nps: i32 =
             (self.result.nodes as f64 / ((stop_time - start_time) as f64 / 1000.0)) as i32;
-        let pv_line_found: Vec<tt::TranspositionTableEntry> =
-            self.tt.lock().unwrap().get_pv_line(position);
+        let pv_line_found: Vec<tt::TranspositionTableEntry> = self.tt.get_pv_line(position);
 
         let score = pv_line_found[0].get_value();
 
@@ -493,7 +484,7 @@ impl Evaluator {
                 self.result.nodes,
                 nps,
                 stop_time - start_time,
-                self.tt.lock().unwrap().get_hashfull()
+                self.tt.get_hashfull()
             );
 
             let mut pv_str: String = String::new();
@@ -592,7 +583,7 @@ impl Evaluator {
         let mut queue: BinaryHeap<PrioritizedMove> = BinaryHeap::with_capacity(moves.len());
 
         let mut tt_move: chess::_move::BitPackedMove = chess::_move::BitPackedMove::default();
-        if let Some(tt_entry) = self.tt.lock().unwrap().get(position.hash) {
+        if let Some(tt_entry) = self.tt.get(position.hash) {
             if tt_entry.get_move() != chess::_move::BitPackedMove::default()
                 && tt_entry.get_flag() == tt::TranspositionTableEntryFlag::EXACT
             {
