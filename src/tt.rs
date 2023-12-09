@@ -42,46 +42,73 @@ impl TranspositionTable {
     }
 
     /// Stores a new entry in the transposition table. If the entry already exists, it is overwritten.
-    pub fn save(
+    pub fn store(
         &mut self,
         key: u64,
         depth: u8,
         flag: TranspositionTableEntryFlag,
         value: i32,
-        m: chess::_move::BitPackedMove,
+        mut m: chess::_move::BitPackedMove,
+        pv: bool,
     ) {
         let hash_index = key as usize & (self.hash_size - 1);
 
-        /*
-                      score (25)        | flag (2) |  depth (8) |            move (30)
-           00000000 00000000 00000000 0 |    00    |  00000000  | 00000000 00000000 0000000 00000
-        */
-        let data = ((value + 50_000) as u64)
-            | ((flag as u64) << 25)
-            | ((depth as u64) << 27)
-            | ((m.move_bits as u64) << 35);
+        let prev = unsafe { self.table.get_unchecked(hash_index) };
+        let same_position = key == prev.key;
 
-        let mut replace = false;
-
-        if self.table[hash_index].key == 0 {
-            self.size += 1;
-            replace = true;
-        } else {
-            if self.table[hash_index].age < self.age || self.table[hash_index].get_depth() <= depth
-            {
-                replace = true;
+        if self.age != prev.age
+            || !same_position
+            || flag == TranspositionTableEntryFlag::EXACT
+            || depth as usize + 4 + 2 * usize::from(pv) > prev.get_depth() as usize
+        {
+            if m == chess::_move::BitPackedMove::default() && same_position {
+                m = prev.get_move();
             }
+
+            /*
+                          score (25)        | flag (2) |  depth (8) |            move (30)
+               00000000 00000000 00000000 0 |    00    |  00000000  | 00000000 00000000 0000000 00000
+            */
+            let data = ((value + 50_000) as u64)
+                | ((flag as u64) << 25)
+                | ((depth as u64) << 27)
+                | ((m.move_bits as u64) << 35);
+
+            self.table[hash_index] = TranspositionTableEntry {
+                key: key ^ data,
+                data,
+                age: self.age,
+            };
         }
 
-        if !replace {
-            return;
-        }
+        // ..
 
-        self.table[hash_index] = TranspositionTableEntry {
-            key: key ^ data,
-            data,
-            age: self.age,
-        }
+        // let data = ((value + 50_000) as u64)
+        //     | ((flag as u64) << 25)
+        //     | ((depth as u64) << 27)
+        //     | ((m.move_bits as u64) << 35);
+
+        // let mut replace = false;
+
+        // if self.table[hash_index].key == 0 {
+        //     self.age += 1;
+        //     replace = true;
+        // } else {
+        //     if self.table[hash_index].age < self.age || self.table[hash_index].get_depth() <= depth
+        //     {
+        //         replace = true;
+        //     }
+        // }
+
+        // if !replace {
+        //     return;
+        // }
+
+        // self.table[hash_index] = TranspositionTableEntry {
+        //     key: key ^ data,
+        //     data,
+        //     age: self.age,
+        // }
     }
 
     /// Returns the entry if it exists, otherwise returns None.

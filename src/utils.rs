@@ -70,7 +70,7 @@ pub fn get_pseudorandom_number_u64(state: &mut u32) -> u64 {
     return n1 | (n2 << 16) | (n3 << 32) | (n4 << 48);
 }
 
-pub fn print_progress_bar(progress: f32, bar_length: usize) {
+pub fn _print_progress_bar(progress: f32, bar_length: usize) {
     let filled_length = (progress * bar_length as f32) as usize;
     let empty_length = bar_length - filled_length;
 
