@@ -177,19 +177,6 @@ pub struct PrioritizedMove {
     pub m: BitPackedMove,
 }
 
-impl PrioritizedMove {
-    pub fn new(m: BitPackedMove, priority: u32) -> Self {
-        Self { priority, m }
-    }
-
-    pub fn default() -> Self {
-        Self {
-            priority: 0,
-            m: BitPackedMove::default(),
-        }
-    }
-}
-
 impl PartialEq for PrioritizedMove {
     fn eq(&self, other: &Self) -> bool {
         self.priority == other.priority

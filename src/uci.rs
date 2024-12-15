@@ -44,9 +44,9 @@ impl UCI {
             };
 
             /*
-            * For reference to the UCI protocol, see:
-            * https://www.wbec-ridderkerk.nl/html/UCIProtocol.html
-            */
+             * For reference to the UCI protocol, see:
+             * https://www.wbec-ridderkerk.nl/html/UCIProtocol.html
+             */
             match tokens[0] {
                 "uci" => {
                     println!("id name redtail_vx");
@@ -70,7 +70,6 @@ impl UCI {
 
                 // The rest of the commands below are custom convenience
                 // commands. Mostly used for debugging, but are useful beyond that.
-
                 "perft" => self.perft(tokens),
 
                 "draw" => self.position.draw(),
@@ -105,6 +104,7 @@ impl UCI {
                 fen.push_str(" ");
             }
             fen.pop();
+            println!("Fen: {}", fen);
             self.position.set_fen(String::from(fen));
 
             // Handle moves
@@ -132,17 +132,41 @@ impl UCI {
         if tokens.len() < 2 {
             return;
         }
+
+        let moves = self.position.generate_moves(false);
+
         let depth = tokens[1].parse::<u8>().unwrap();
         let start_time = std::time::Instant::now();
-        let nodes = self.position.perft(depth);
+
+        let mut nodes = 0;
+
+        for m in moves {
+            let is_legal_move = self.position.make_move(m, false);
+            if !is_legal_move {
+                continue;
+            }
+
+            let m_nodes = self.position.perft(depth - 1);
+            println!("{}: {}", m, m_nodes);
+            nodes += m_nodes;
+            self.position.unmake_move();
+        }
+
         let end_time = std::time::Instant::now();
         let elapsed = end_time.duration_since(start_time);
         let nps = nodes as f64 / (elapsed.as_millis() as f64 / 1000.0);
-        println!("nodes {} nps {}", nodes, nps);
+        println!("Nodes searched: {}", nodes);
+        println!("Time elapsed (s): {}", elapsed.as_secs_f64());
+        println!("Nodes per second: {}", nps);
     }
 
     /// Start searching with given options
     fn go(&mut self, tokens: Vec<&str>) {
+        if tokens.len() == 3 && tokens[1] == "perft" {
+            self.perft(tokens[1..].to_vec());
+            return;
+        }
+
         let options = SearchOptions::from(tokens);
         let tt = Arc::clone(&self.shared_transposition_table);
         let is_searching = Arc::clone(&self.is_searching);

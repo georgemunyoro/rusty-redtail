@@ -1,10 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use board::Board;
-use movegen::MoveGenerator;
 use uci::UCI;
 
-use crate::utils::print_progress_bar;
+use crate::utils::_print_progress_bar;
 
 mod board;
 mod chess;
@@ -49,7 +48,7 @@ fn _cutoff_testing() {
 
     let mut index = 0;
 
-    for fen in Y {
+    for fen in _Y {
         position.set_fen(String::from(fen));
         let mut evaluator = search::evaluate::Evaluator::new();
 
@@ -59,7 +58,7 @@ fn _cutoff_testing() {
         let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new(32)));
 
         index += 1;
-        let progress = (index as f32) / (Y.len() as f32);
+        let progress = (index as f32) / (_Y.len() as f32);
 
         evaluator.get_best_move(
             &mut position,
@@ -74,7 +73,7 @@ fn _cutoff_testing() {
 
         println!("\n======================================================");
 
-        print_progress_bar(progress, 50);
+        _print_progress_bar(progress, 50);
 
         println!("FEN: {}", fen);
         println!("Total recorded cutoffs: {}", evaluator.result.cutoffs.total);
@@ -121,7 +120,7 @@ fn _cutoff_testing() {
     println!("===========================\n");
 }
 
-const X: [&str; 300] = [
+const _X: [&str; 300] = [
     "rnbqk2r/pp1p1ppp/4pn2/2b5/8/4P3/PPP1BPPP/RNBQK1NR w KQkq - 0 5",
     "r1bqk1nr/pppp1pbp/2n3p1/4p3/2P1P3/3P3P/PP3PP1/RNBQKBNR w KQkq - 1 5",
     "rnbqk1nr/pp1pbppp/2p5/3Np3/2P5/6P1/PP1PPP1P/R1BQKBNR w KQkq - 0 5",
@@ -424,7 +423,7 @@ const X: [&str; 300] = [
     "rnbqkbnr/1p2ppp1/p1p4p/3p4/8/P1N2NP1/1PPPPP1P/R1BQKB1R w KQkq - 0 5",
 ];
 
-const Y: [&str; 300] = [
+const _Y: [&str; 300] = [
     "8/p2p2r1/k6P/2Q2P2/1Bp4p/4P1RN/7n/2RK4 w - - 0 1",
     "8/5K2/P1P1P3/3RN2p/1k2PP2/6P1/p1Rp2qr/8 w - - 0 1",
     "2k3n1/3q1p2/1P5P/3n1PQN/b6P/2p4P/1P2K3/8 w - - 0 1",
@@ -724,5 +723,5 @@ const Y: [&str; 300] = [
     "n7/k5r1/bR6/4pp2/2Q5/3P4/1p1Pp2K/1Bb3R1 w - - 0 1",
     "7n/2P5/KP3PNk/p3p3/3Np3/2p1p3/p7/Q2b4 w - - 0 1",
     "2RK3N/1pp5/2p5/8/1k3r1P/6P1/1pP1qp2/3nb3 w - - 0 1",
-    "8/2P5/1B1p1Pk1/1QP2rp1/3Pn1p1/1p3p2/5P2/K7 w - - 0 1"
+    "8/2P5/1B1p1Pk1/1QP2rp1/3Pn1p1/1p3p2/5P2/K7 w - - 0 1",
 ];

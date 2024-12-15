@@ -59,8 +59,6 @@ pub struct Position {
 
     pub white_passed_pawn_masks: [u64; 64],
     pub black_passed_pawn_masks: [u64; 64],
-
-    pub opponent_attack_map: u64,
 }
 
 pub struct HistoryEntry {
@@ -152,8 +150,6 @@ impl Board for Position {
             file_masks: [0; 64],
             rank_masks: [0; 64],
             isolated_pawn_masks: [0; 64],
-
-            opponent_attack_map: 0,
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -1539,58 +1535,3 @@ pub fn _get_piece_value_bl(piece: usize, square: usize, game_phase_score: i32) -
 
     return piece_value;
 }
-//
-// pub fn _get_piece_value_bl(piece: Piece, square: usize, game_phase_score: i32) -> i32 {
-//     if (piece as usize) < (Piece::BlackPawn as usize) {
-//         let mut piece_value = 0;
-//
-//         if game_phase_score > OPENING_GAME_PHASE_SCORE {
-//             // opening
-//             piece_value += OPENING_PIECE_SCORES[piece as usize]
-//                 + OPENING_PIECE_PST_MAP[piece as usize][square];
-//         } else if game_phase_score < ENDGAME_PHASE_SCORE {
-//             // endgame
-//             piece_value +=
-//                 ENDING_PIECE_SCORES[piece as usize] + ENDING_PIECE_PST_MAP[piece as usize][square];
-//         } else {
-//             // middlegame
-//             piece_value += (OPENING_PIECE_SCORES[piece as usize] * game_phase_score
-//                 + ENDING_PIECE_SCORES[piece as usize]
-//                     * (OPENING_GAME_PHASE_SCORE - game_phase_score))
-//                 / OPENING_GAME_PHASE_SCORE;
-//
-//             piece_value += (OPENING_PIECE_PST_MAP[piece as usize][square] * game_phase_score
-//                 + ENDING_PIECE_PST_MAP[piece as usize][square]
-//                     * (OPENING_GAME_PHASE_SCORE - game_phase_score))
-//                 / OPENING_GAME_PHASE_SCORE;
-//         };
-//
-//         return piece_value;
-//     } else {
-//         let mut piece_value = 0;
-//
-//         if game_phase_score > OPENING_GAME_PHASE_SCORE {
-//             // opening
-//             piece_value += OPENING_PIECE_SCORES[piece as usize]
-//                 + OPENING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize];
-//         } else if game_phase_score < ENDGAME_PHASE_SCORE {
-//             // endgame
-//             piece_value += ENDING_PIECE_SCORES[piece as usize]
-//                 + ENDING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize];
-//         } else {
-//             // middlegame
-//             piece_value += (OPENING_PIECE_SCORES[piece as usize] * game_phase_score
-//                 + ENDING_PIECE_SCORES[piece as usize]
-//                     * (OPENING_GAME_PHASE_SCORE - game_phase_score))
-//                 / OPENING_GAME_PHASE_SCORE;
-//
-//             piece_value += (OPENING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize]
-//                 * game_phase_score
-//                 + ENDING_PIECE_PST_MAP[piece as usize][MIRROR_SCORE[square] as usize]
-//                     * (OPENING_GAME_PHASE_SCORE - game_phase_score))
-//                 / OPENING_GAME_PHASE_SCORE;
-//         };
-//
-//         return piece_value;
-//     }
-// }
