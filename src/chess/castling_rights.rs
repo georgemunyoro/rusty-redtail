@@ -16,6 +16,7 @@ impl CastlingRights {
     pub const WHITE_QUEENSIDE: u8 = 0b0010;
     pub const BLACK_KINGSIDE: u8 = 0b0100;
     pub const BLACK_QUEENSIDE: u8 = 0b1000;
+    pub const NONE: u8 = 0b0000;
 
     /// Create a new castling rights with all rights
     pub fn new() -> Self {

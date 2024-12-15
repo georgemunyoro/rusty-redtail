@@ -1,6 +1,12 @@
 pub mod constants;
 
+use std::{
+    ops::{Index, IndexMut},
+    slice::SliceIndex,
+};
+
 use crate::{
+    bitboard::Bitboard,
     chess::{
         self, castling_rights::CastlingRights, color::Color, piece::Piece, square::Square,
         square::SQUARE_ITER,
@@ -14,6 +20,44 @@ use crate::{
     },
     utils::{self, get_bit, pop_lsb},
 };
+
+impl Index<Piece> for [u64; 12] {
+    type Output = u64;
+
+    fn index(&self, index: Piece) -> &Self::Output {
+        unsafe {
+            return &self.get_unchecked(index as usize);
+        }
+    }
+}
+
+impl IndexMut<Piece> for [u64; 12] {
+    fn index_mut(&mut self, index: Piece) -> &mut Self::Output {
+        unsafe {
+            return self.get_unchecked_mut(index as usize);
+        }
+    }
+}
+
+impl Index<Piece> for [[u64; 64]; 12] {
+    type Output = [u64; 64];
+
+    fn index(&self, index: Piece) -> &Self::Output {
+        unsafe {
+            return &self.get_unchecked(index as usize);
+        }
+    }
+}
+
+impl Index<Square> for [u64; 64] {
+    type Output = u64;
+
+    fn index(&self, index: Square) -> &Self::Output {
+        unsafe {
+            return &self.get_unchecked(index as usize);
+        }
+    }
+}
 
 /// A chess position
 pub struct Position {
@@ -91,6 +135,7 @@ pub trait Board {
     fn is_in_check(&self) -> bool;
 
     fn make_move(&mut self, m: chess::_move::BitPackedMove, only_captures: bool) -> bool;
+    fn make_move_simple(&mut self, m: chess::_move::BitPackedMove, only_captures: bool) -> bool;
     fn unmake_move(&mut self);
     fn make_null_move(&mut self);
 
@@ -172,8 +217,7 @@ impl Board for Position {
 
     /// Returns true if the current side's king is in check
     fn is_in_check(&self) -> bool {
-        let king_square =
-            utils::get_lsb(self.bitboards[(self.turn as usize * 6) + (Piece::WhiteKing as usize)]);
+        let king_square = self.bitboards[Piece::king(self.turn)].get_lsb();
         return king_square >= 64 || self.is_square_attacked(Square::from(king_square), !self.turn);
     }
 
@@ -379,6 +423,149 @@ impl Board for Position {
                     | self.bitboards[Piece::BlackQueen as usize],
             ) as i32
                 * 1025)
+    }
+
+    fn make_move_simple(&mut self, m: chess::_move::BitPackedMove, only_captures: bool) -> bool {
+        if only_captures && !m.is_capture() {
+            return false;
+        }
+
+        self.position_stack.push(self.to_history_entry()); // add the move to the history
+
+        self.bitboards[m.get_piece()].set_bit(m.get_to()); // set the moving piece
+
+        self.hash ^= self.zobrist_piece_keys[m.get_piece()][m.get_from()];
+        self.hash ^= self.zobrist_piece_keys[m.get_piece()][m.get_to()];
+
+        self.bitboards[m.get_piece()].clear_bit(m.get_from()); // remove the moving piece
+
+        // handle captures
+        if m.is_capture() {
+            let captured_piece = m.get_capture();
+            self.bitboards[captured_piece].clear_bit(m.get_to()); // remove the captured piece
+            self.hash ^= self.zobrist_piece_keys[captured_piece][m.get_to()];
+        }
+
+        // handle promotions
+        if m.is_promotion() {
+            self.bitboards[m.get_piece()].clear_bit(m.get_to()); // remove the pawn
+            self.hash ^= self.zobrist_piece_keys[m.get_piece()][m.get_to()];
+            self.bitboards[m.get_promotion()].set_bit(m.get_to()); // add the promoted piece
+            self.hash ^= self.zobrist_piece_keys[m.get_promotion()][m.get_to()];
+        }
+
+        if let Some(enpassant_square) = self.enpassant {
+            self.hash ^= self.zobrist_enpassant_keys[enpassant_square];
+        }
+
+        // handle en passant
+        if m.is_enpassant() {
+            let en_square = (m.get_to() as u8) + (8 - (self.turn as u8 * 16));
+            if self.occupancies[2].test_bit(en_square) {
+                let en_piece = self.get_piece_at_square(en_square);
+                self.bitboards[en_piece].clear_bit(Square::from(en_square)); // remove the captured pawn
+            }
+        }
+
+        self.enpassant = None;
+
+        // handle setting the en passant square during double pawn pushes
+        if m.get_piece().is_pawn() {
+            let offset = -1 * (m.get_from() as i8 - m.get_to() as i8) / 2;
+            if offset == 8 || offset == -8 {
+                self.enpassant = Some(Square::from((m.get_from() as i8 + offset) as u8));
+                self.hash ^= self.zobrist_enpassant_keys[(m.get_from() as i8 + offset) as usize];
+            }
+        }
+
+        // handle castling
+        if m.is_castle() {
+            match m.get_to() {
+                Square::C1 => {
+                    // white queen side
+                    self.bitboards[Piece::WhiteRook].clear_bit(Square::A1);
+                    self.hash ^= self.zobrist_piece_keys[Piece::WhiteRook][Square::A1];
+
+                    self.bitboards[Piece::WhiteRook].set_bit(Square::D1);
+                    self.hash ^= self.zobrist_piece_keys[Piece::WhiteRook][Square::D1];
+                }
+                Square::G1 => {
+                    // white king side
+                    self.bitboards[Piece::WhiteRook].clear_bit(Square::H1);
+                    self.hash ^= self.zobrist_piece_keys[Piece::WhiteRook][Square::H1];
+
+                    self.bitboards[Piece::WhiteRook].set_bit(Square::F1);
+                    self.hash ^= self.zobrist_piece_keys[Piece::WhiteRook][Square::F1];
+                }
+                Square::C8 => {
+                    // black queen side
+                    self.bitboards[Piece::BlackRook].clear_bit(Square::A8);
+                    self.hash ^= self.zobrist_piece_keys[Piece::BlackRook][Square::A8];
+
+                    self.bitboards[Piece::BlackRook].set_bit(Square::D8);
+                    self.hash ^= self.zobrist_piece_keys[Piece::BlackRook][Square::D8];
+                }
+                Square::G8 => {
+                    // black king side
+                    self.bitboards[Piece::BlackRook].clear_bit(Square::H8);
+                    self.hash ^= self.zobrist_piece_keys[Piece::BlackRook][Square::H8];
+
+                    self.bitboards[Piece::BlackRook].set_bit(Square::F8);
+                    self.hash ^= self.zobrist_piece_keys[Piece::BlackRook][Square::F8];
+                }
+                _ => {}
+            }
+        }
+
+        self.hash ^= self.zobrist_castling_keys[self.castling.get_rights_u8() as usize];
+
+        if m.get_piece() == Piece::WhiteKing {
+            self.castling
+                .remove_right(CastlingRights::WHITE_KINGSIDE | CastlingRights::WHITE_QUEENSIDE);
+        } else if m.get_piece() == Piece::BlackKing {
+            self.castling
+                .remove_right(CastlingRights::BLACK_KINGSIDE | CastlingRights::BLACK_QUEENSIDE);
+        }
+
+        if m.get_piece() == Piece::WhiteRook {
+            if m.get_from() == Square::A1 {
+                self.castling.remove_right(CastlingRights::WHITE_QUEENSIDE);
+            } else if m.get_from() == Square::H1 {
+                self.castling.remove_right(CastlingRights::WHITE_KINGSIDE);
+            }
+        } else if m.get_piece() == Piece::BlackRook {
+            if m.get_from() == Square::A8 {
+                self.castling.remove_right(CastlingRights::BLACK_QUEENSIDE);
+            } else if m.get_from() == Square::H8 {
+                self.castling.remove_right(CastlingRights::BLACK_KINGSIDE);
+            }
+        }
+
+        self.castling
+            .remove_right(match (m.get_piece(), m.get_from()) {
+                (Piece::WhiteRook, Square::A1) => CastlingRights::WHITE_QUEENSIDE,
+                (Piece::WhiteRook, Square::H1) => CastlingRights::WHITE_KINGSIDE,
+                (Piece::BlackRook, Square::A8) => CastlingRights::BLACK_QUEENSIDE,
+                (Piece::BlackRook, Square::H8) => CastlingRights::BLACK_KINGSIDE,
+                _ => CastlingRights::NONE,
+            });
+
+        self.hash ^= self.zobrist_castling_keys[self.castling.get_rights_u8() as usize];
+
+        self.update_occupancies();
+
+        // ensure the king is not in check
+        if !m.get_piece().is_king() {
+            if self.is_in_check() {
+                self.unmake_move();
+                return false;
+            }
+        }
+
+        self.turn = !self.turn;
+        self.hash ^= self.zobrist_turn_key;
+
+        return true;
     }
 
     fn make_move(&mut self, m: chess::_move::BitPackedMove, only_captures: bool) -> bool {

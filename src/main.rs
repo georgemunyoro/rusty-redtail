@@ -1,3 +1,5 @@
+#![feature(test)]
+#![feature(slice_index_methods)]
 use std::sync::{Arc, Mutex};
 
 use board::Board;
@@ -5,6 +7,7 @@ use uci::UCI;
 
 use crate::utils::_print_progress_bar;
 
+mod bitboard;
 mod board;
 mod chess;
 mod movegen;

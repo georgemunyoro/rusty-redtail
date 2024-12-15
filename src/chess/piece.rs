@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use super::color::Color;
+
 /// Represents a chess piece
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Piece {
@@ -18,6 +20,62 @@ pub enum Piece {
     BlackKing,
 
     Empty,
+}
+
+impl Piece {
+    pub fn pawn(color: Color) -> Piece {
+        return match color {
+            Color::White => Piece::WhitePawn,
+            Color::Black => Piece::BlackPawn,
+        };
+    }
+
+    pub fn knight(color: Color) -> Piece {
+        return match color {
+            Color::White => Piece::WhiteKnight,
+            Color::Black => Piece::BlackKnight,
+        };
+    }
+
+    pub fn bishop(color: Color) -> Piece {
+        return match color {
+            Color::White => Piece::WhiteBishop,
+            Color::Black => Piece::BlackBishop,
+        };
+    }
+
+    pub fn rook(color: Color) -> Piece {
+        return match color {
+            Color::White => Piece::WhiteRook,
+            Color::Black => Piece::BlackRook,
+        };
+    }
+
+    pub fn queen(color: Color) -> Piece {
+        return match color {
+            Color::White => Piece::WhiteQueen,
+            Color::Black => Piece::BlackQueen,
+        };
+    }
+
+    pub fn king(color: Color) -> Piece {
+        return match color {
+            Color::White => Piece::WhiteKing,
+            Color::Black => Piece::BlackKing,
+        };
+    }
+
+    pub fn is_pawn(self) -> bool {
+        return self == Piece::WhitePawn || self == Piece::BlackPawn;
+    }
+
+    pub fn is_king(self) -> bool {
+        return self == Piece::WhiteKing || self == Piece::BlackKing;
+    }
+
+    pub fn is_rook(self) -> bool {
+        return self == Piece::WhiteRook || self == Piece::BlackRook;
+    }
 }
 
 /// Returns the character representation of a piece
@@ -129,5 +187,3 @@ pub static PIECE_ITER: [Piece; 12] = [
     Piece::WhiteQueen,
     Piece::WhiteKing,
 ];
-
-

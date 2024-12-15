@@ -667,7 +667,7 @@ impl MoveGenerator for Position {
         let moves = self.generate_moves(false);
 
         for m in moves {
-            let is_legal_move = self.make_move(m, false);
+            let is_legal_move = self.make_move_simple(m, false);
             if !is_legal_move {
                 continue;
             }
