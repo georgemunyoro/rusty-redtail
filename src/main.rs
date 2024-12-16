@@ -17,8 +17,8 @@ mod tt;
 mod uci;
 mod utils;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+// #[global_allocator]
+// static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Cutoffs {
