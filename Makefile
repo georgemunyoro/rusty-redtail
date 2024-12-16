@@ -1,4 +1,12 @@
-EXE ?= redtail
-all:
-	cargo build --release
-	cp target/release/redtail $(EXE)
+EXE = akimbo
+
+ifeq ($(OS),Windows_NT)
+	NAME := $(EXE).exe
+else
+	NAME := $(EXE)
+endif
+
+rule:
+	cargo clean
+	cargo rustc --release -- -C target-cpu=native --emit link=$(NAME)
+
