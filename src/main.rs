@@ -15,9 +15,6 @@ mod tt;
 mod uci;
 mod utils;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[derive(Debug, Copy, Clone)]
 pub struct Cutoffs {
     total: u32,
@@ -724,5 +721,5 @@ const Y: [&str; 300] = [
     "n7/k5r1/bR6/4pp2/2Q5/3P4/1p1Pp2K/1Bb3R1 w - - 0 1",
     "7n/2P5/KP3PNk/p3p3/3Np3/2p1p3/p7/Q2b4 w - - 0 1",
     "2RK3N/1pp5/2p5/8/1k3r1P/6P1/1pP1qp2/3nb3 w - - 0 1",
-    "8/2P5/1B1p1Pk1/1QP2rp1/3Pn1p1/1p3p2/5P2/K7 w - - 0 1"
+    "8/2P5/1B1p1Pk1/1QP2rp1/3Pn1p1/1p3p2/5P2/K7 w - - 0 1",
 ];

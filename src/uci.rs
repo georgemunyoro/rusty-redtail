@@ -44,13 +44,15 @@ impl UCI {
             };
 
             /*
-            * For reference to the UCI protocol, see:
-            * https://www.wbec-ridderkerk.nl/html/UCIProtocol.html
-            */
+             * For reference to the UCI protocol, see:
+             * https://www.wbec-ridderkerk.nl/html/UCIProtocol.html
+             */
             match tokens[0] {
                 "uci" => {
                     println!("id name redtail_vx");
                     println!("id author George T.G. Munyoro");
+                    println!("option name Hash type spin default 1 min 1 max 1");
+                    println!("option name Threads type spin default 1 min 1 max 1");
                     println!("uciok");
                 }
 
@@ -70,10 +72,11 @@ impl UCI {
 
                 // The rest of the commands below are custom convenience
                 // commands. Mostly used for debugging, but are useful beyond that.
-
                 "perft" => self.perft(tokens),
 
                 "draw" => self.position.draw(),
+
+                "setoption" => {}
 
                 _ => {
                     println!("Unknown command: {}", buffer.trim());
