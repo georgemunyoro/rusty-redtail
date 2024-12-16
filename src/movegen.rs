@@ -409,7 +409,7 @@ impl MoveGenerator for Position {
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
             let mut bishop_moves = self
-                .get_bishop_magic_attacks(Square::from(i), friendly_pieces | enemy_pieces)
+                .get_bishop_pext_attacks(Square::from(i), friendly_pieces | enemy_pieces)
                 & !friendly_pieces;
 
             if only_captures {
@@ -448,7 +448,7 @@ impl MoveGenerator for Position {
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
             let mut rook_moves = self
-                .get_rook_magic_attacks(Square::from(i), friendly_pieces | enemy_pieces)
+                .get_rook_pext_attacks(Square::from(i), friendly_pieces | enemy_pieces)
                 & !friendly_pieces;
 
             if only_captures {
@@ -488,7 +488,7 @@ impl MoveGenerator for Position {
         while piece_bitboard != 0 {
             let i = utils::pop_lsb(&mut piece_bitboard);
             let mut queen_moves = self
-                .get_queen_magic_attacks(Square::from(i), friendly_pieces | enemy_pieces)
+                .get_queen_pext_attacks(Square::from(i), friendly_pieces | enemy_pieces)
                 & !friendly_pieces;
 
             if only_captures {
@@ -648,7 +648,7 @@ impl MoveGenerator for Position {
         let mut moves = Vec::with_capacity(256);
 
         for m in self.generate_moves(false) {
-            let is_legal_move = self.make_move(m, false);
+            let is_legal_move = self.make_move_simple(m, false);
             if is_legal_move {
                 moves.push(m);
                 self.unmake_move();

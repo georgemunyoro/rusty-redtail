@@ -22,7 +22,78 @@ pub enum Piece {
     Empty,
 }
 
+#[repr(C)]
+pub enum NNUEPiece {
+    Blank = 0,
+    Wking = 1,
+    Wqueen = 2,
+    Wrook = 3,
+    Wbishop = 4,
+    Wknight = 5,
+    Wpawn = 6,
+    Bking = 7,
+    Bqueen = 8,
+    Brook = 9,
+    Bbishop = 10,
+    Bknight = 11,
+    Bpawn = 12,
+}
+
+pub fn piece_to_nnue_piece(piece: Piece) -> NNUEPiece {
+    match piece {
+        Piece::WhiteKing => NNUEPiece::Wking,
+        Piece::WhiteQueen => NNUEPiece::Wqueen,
+        Piece::WhiteRook => NNUEPiece::Wrook,
+        Piece::WhiteBishop => NNUEPiece::Wbishop,
+        Piece::WhiteKnight => NNUEPiece::Wknight,
+        Piece::WhitePawn => NNUEPiece::Wpawn,
+        Piece::BlackKing => NNUEPiece::Bking,
+        Piece::BlackQueen => NNUEPiece::Bqueen,
+        Piece::BlackRook => NNUEPiece::Brook,
+        Piece::BlackBishop => NNUEPiece::Bbishop,
+        Piece::BlackKnight => NNUEPiece::Bknight,
+        Piece::BlackPawn => NNUEPiece::Bpawn,
+        Piece::Empty => NNUEPiece::Blank,
+    }
+}
+
+pub fn nnue_piece_to_piece(piece: NNUEPiece) -> Piece {
+    match piece {
+        NNUEPiece::Wking => Piece::WhiteKing,
+        NNUEPiece::Wqueen => Piece::WhiteQueen,
+        NNUEPiece::Wrook => Piece::WhiteRook,
+        NNUEPiece::Wbishop => Piece::WhiteBishop,
+        NNUEPiece::Wknight => Piece::WhiteKnight,
+        NNUEPiece::Wpawn => Piece::WhitePawn,
+        NNUEPiece::Bking => Piece::BlackKing,
+        NNUEPiece::Bqueen => Piece::BlackQueen,
+        NNUEPiece::Brook => Piece::BlackRook,
+        NNUEPiece::Bbishop => Piece::BlackBishop,
+        NNUEPiece::Bknight => Piece::BlackKnight,
+        NNUEPiece::Bpawn => Piece::BlackPawn,
+        NNUEPiece::Blank => Piece::Empty,
+    }
+}
+
 impl Piece {
+    pub fn iter() -> impl Iterator<Item = Piece> {
+        return vec![
+            Piece::WhitePawn,
+            Piece::WhiteKnight,
+            Piece::WhiteBishop,
+            Piece::WhiteRook,
+            Piece::WhiteQueen,
+            Piece::WhiteKing,
+            Piece::BlackPawn,
+            Piece::BlackKnight,
+            Piece::BlackBishop,
+            Piece::BlackRook,
+            Piece::BlackQueen,
+            Piece::BlackKing,
+        ]
+        .into_iter();
+    }
+
     pub fn pawn(color: Color) -> Piece {
         return match color {
             Color::White => Piece::WhitePawn,

@@ -1,15 +1,15 @@
 pub mod constants;
 
 use std::{
+    arch::x86_64::_pext_u64,
     ops::{Index, IndexMut},
-    slice::SliceIndex,
 };
 
 use crate::{
     bitboard::Bitboard,
     chess::{
         self, castling_rights::CastlingRights, color::Color, piece::Piece, square::Square,
-        square::SQUARE_ITER,
+        square::SQUARES,
     },
     pst::{
         END_BISHOP_POSITIONAL_SCORE, END_KING_POSITIONAL_SCORE, END_KNIGHT_POSITIONAL_SCORE,
@@ -103,6 +103,12 @@ pub struct Position {
 
     pub white_passed_pawn_masks: [u64; 64],
     pub black_passed_pawn_masks: [u64; 64],
+
+    pub arr_attacks: Vec<u64>,
+    pub arr_rook_base: [u64; 64],
+    pub arr_rook_mask: [u64; 64],
+    pub arr_bishop_base: [u64; 64],
+    pub arr_bishop_mask: [u64; 64],
 }
 
 pub struct HistoryEntry {
@@ -195,6 +201,12 @@ impl Board for Position {
             file_masks: [0; 64],
             rank_masks: [0; 64],
             isolated_pawn_masks: [0; 64],
+
+            arr_attacks: vec![],
+            arr_rook_base: [0; 64],
+            arr_rook_mask: [0; 64],
+            arr_bishop_base: [0; 64],
+            arr_bishop_mask: [0; 64],
         };
 
         pos.initialize_leaper_piece_attacks();
@@ -206,6 +218,8 @@ impl Board for Position {
         pos.init_zorbrist_keys();
         pos.update_occupancies();
         pos.update_hash();
+
+        pos.initialize_pext_attacks();
 
         match fen {
             Some(p) => Position::set_fen(&mut pos, String::from(p)),
@@ -1349,7 +1363,7 @@ impl Position {
         println!("Generating magic numbers...");
         println!("--------------------------------\n");
 
-        for square in SQUARE_ITER {
+        for square in SQUARES {
             let magic_number = self._find_magic_number(
                 square,
                 constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
@@ -1361,7 +1375,7 @@ impl Position {
 
         println!("--------------------------------");
 
-        for square in SQUARE_ITER {
+        for square in SQUARES {
             let magic_number = self._find_magic_number(
                 square,
                 constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
@@ -1373,7 +1387,7 @@ impl Position {
     }
 
     fn initialize_slider_magic_attacks(&mut self, is_bishop: bool) {
-        for square in SQUARE_ITER {
+        for square in SQUARES {
             self.magic_bishop_masks[usize::from(u8::from(square))] =
                 self.mask_bishop_attacks(square);
 
@@ -1441,9 +1455,75 @@ impl Position {
         return self.magic_rook_attacks[square as usize][mutable_occupancy as usize];
     }
 
+    pub fn get_rook_pext_attacks(&self, square: Square, occupancy: u64) -> u64 {
+        unsafe {
+            return self.arr_attacks[self.arr_rook_base[square] as usize
+                + _pext_u64(occupancy, self.arr_rook_mask[square]) as usize];
+        }
+    }
+
+    pub fn get_bishop_pext_attacks(&self, square: Square, occupancy: u64) -> u64 {
+        unsafe {
+            return self.arr_attacks[self.arr_bishop_base[square] as usize
+                + _pext_u64(occupancy, self.arr_bishop_mask[square]) as usize];
+        }
+    }
+
+    pub fn get_queen_pext_attacks(&self, square: Square, occupancy: u64) -> u64 {
+        return self.get_bishop_pext_attacks(square, occupancy)
+            | self.get_rook_pext_attacks(square, occupancy);
+    }
+
     pub fn get_queen_magic_attacks(&self, square: Square, occupancy: u64) -> u64 {
         return self.get_bishop_magic_attacks(square, occupancy)
             | self.get_rook_magic_attacks(square, occupancy);
+    }
+
+    pub fn initialize_rook_pext_attacks(&mut self) {
+        for square in SQUARES {
+            let mask = self.mask_rook_attacks(square);
+            self.arr_rook_mask[square as usize] = mask;
+            let occupancy_variants = 1 << mask.count_ones();
+            self.arr_rook_base[square as usize] = self.arr_attacks.len() as u64;
+            for occupancy in 0..occupancy_variants {
+                let real_occupancy = self.map_occupancy(occupancy, mask);
+                let attack = self.get_rook_magic_attacks(square, real_occupancy);
+                self.arr_attacks.push(attack);
+            }
+        }
+    }
+
+    pub fn initialize_bishop_pext_attacks(&mut self) {
+        for square in SQUARES {
+            let mask = self.mask_bishop_attacks(square);
+            self.arr_bishop_mask[square as usize] = mask;
+            let occupancy_variants = 1 << mask.count_ones();
+            self.arr_bishop_base[square as usize] = self.arr_attacks.len() as u64;
+            for occupancy in 0..occupancy_variants {
+                let real_occupancy = self.map_occupancy(occupancy, mask);
+                let attack = self.get_bishop_magic_attacks(square, real_occupancy);
+                self.arr_attacks.push(attack);
+            }
+        }
+    }
+
+    pub fn initialize_pext_attacks(&mut self) {
+        self.initialize_rook_pext_attacks();
+        self.initialize_bishop_pext_attacks();
+    }
+
+    fn map_occupancy(&self, occupancy: u64, mask: u64) -> u64 {
+        let mut real_occupancy = 0;
+        let mut bit = 0;
+        for i in 0..64 {
+            if mask & (1 << i) != 0 {
+                if occupancy & (1 << bit) != 0 {
+                    real_occupancy |= 1 << i;
+                }
+                bit += 1;
+            }
+        }
+        real_occupancy
     }
 
     pub fn get_both_occupancy(&self) -> u64 {
@@ -1466,7 +1546,7 @@ impl Position {
 mod tests {
     use crate::{
         board::{constants, Board, Position},
-        chess::{constants::STARTING_FEN, piece::Piece, square::SQUARE_ITER},
+        chess::{constants::STARTING_FEN, piece::Piece, square::SQUARES},
         movegen::MoveGenerator,
     };
 
@@ -1514,7 +1594,7 @@ mod tests {
     fn generate_magic_numbers_correctly() {
         let mut board = Position::new(None);
 
-        for square in SQUARE_ITER {
+        for square in SQUARES {
             let magic_number = board._find_magic_number(
                 square,
                 constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))],
@@ -1527,7 +1607,7 @@ mod tests {
             );
         }
 
-        for square in SQUARE_ITER {
+        for square in SQUARES {
             let magic_number = board._find_magic_number(
                 square,
                 constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))],
@@ -1545,7 +1625,7 @@ mod tests {
     fn bench_get_piece_value(b: &mut Bencher) {
         let board = <Position as Board>::new(Some(STARTING_FEN));
         b.iter(|| {
-            for square in SQUARE_ITER {
+            for square in SQUARES {
                 let piece = board.get_piece_at_square(square as u8);
 
                 if piece != Piece::Empty {

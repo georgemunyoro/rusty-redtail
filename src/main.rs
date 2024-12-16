@@ -1,6 +1,6 @@
 #![feature(test)]
 #![feature(slice_index_methods)]
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use board::Board;
 use uci::UCI;
@@ -57,8 +57,8 @@ fn _cutoff_testing() {
 
         let mut search_options = search::options::SearchOptions::new();
         search_options.depth = Some(8);
-        let is_searching = Arc::new(Mutex::new(true));
-        let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new(32)));
+        let is_searching = Arc::new(RwLock::new(true));
+        let ll_transposition_table = Arc::new(RwLock::new(tt::TranspositionTable::new(32)));
 
         index += 1;
         let progress = (index as f32) / (_Y.len() as f32);
@@ -67,7 +67,7 @@ fn _cutoff_testing() {
             &mut position,
             search_options,
             is_searching,
-            transposition_table,
+            ll_transposition_table,
             0,
             1,
         );

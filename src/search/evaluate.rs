@@ -1,19 +1,21 @@
 use std::{
     collections::BinaryHeap,
-    sync::{Arc, Mutex},
+    ffi::{c_char, c_int, c_void, CString},
+    sync::{Arc, RwLock},
 };
 
 use crate::{
+    bitboard::Bitboard,
     board::{Board, Position},
     chess::{
         self,
         _move::{BitPackedMove, PrioritizedMove},
         color::Color,
-        piece::Piece,
+        piece::{piece_to_nnue_piece, Piece},
+        square::{sq_to_nnue_index, Square, SQUARES},
     },
     movegen::MoveGenerator,
-    search::constants::*,
-    search::options::*,
+    search::{constants::*, options::*},
     tt::{self, TranspositionTable},
     utils, Cutoffs,
 };
@@ -29,31 +31,96 @@ pub struct PositionEvaluation {
 }
 
 pub struct Evaluator {
-    pub running: Arc<Mutex<bool>>,
+    pub running: Arc<RwLock<bool>>,
     pub result: PositionEvaluation,
     pub killer_moves: [[chess::_move::BitPackedMove; MAX_PLY]; 2],
     pub history_moves: [[u32; MAX_PLY]; 12],
     pub started_at: u128,
     pub options: SearchOptions,
-    pub tt: Arc<Mutex<TranspositionTable>>,
+    pub lltt: Arc<RwLock<TranspositionTable>>,
     pub repetition_table: Vec<u64>,
+    pub nnue_data: Vec<NNUEdata>,
+    pub nnue_data_ptrs: Vec<*mut NNUEdata>,
     counter_move_table: [[BitPackedMove; 64]; 64],
+}
+
+#[link(name = "nnueprobe")]
+extern "C" {
+    pub fn nnue_init(path: *const c_char) -> c_void;
+    fn nnue_evaluate_fen(fen: *const c_char) -> i32;
+    fn nnue_evaluate(side_to_move: i32, pieces: *mut i32, squares: *mut i32) -> i32;
+    fn nnue_evaluate_incremental(
+        side_to_move: i32,
+        pieces: *mut i32,
+        squares: *mut i32,
+        nnue_data: *mut *mut NNUEdata,
+    ) -> i32;
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct DirtyPiece {
+    dirty_num: i32,
+    pc: [i32; 3],
+    from: [i32; 3],
+    to: [i32; 3],
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct Accumulator {
+    accumulation: [[i16; 256]; 2],
+    computed_accumulation: i32,
+}
+
+impl Default for Accumulator {
+    fn default() -> Self {
+        return Accumulator {
+            accumulation: [[0; 256]; 2],
+            computed_accumulation: 0,
+        };
+    }
+}
+
+impl Default for DirtyPiece {
+    fn default() -> Self {
+        return DirtyPiece {
+            dirty_num: 0,
+            pc: [0; 3],
+            from: [0; 3],
+            to: [0; 3],
+        };
+    }
+}
+
+impl Default for NNUEdata {
+    fn default() -> Self {
+        return NNUEdata {
+            accumulator: Accumulator::default(),
+            dirty_piece: DirtyPiece::default(),
+        };
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NNUEdata {
+    accumulator: Accumulator,
+    dirty_piece: DirtyPiece,
 }
 
 impl Evaluator {
     fn is_running(&mut self) -> bool {
-        let r = self.running.lock().unwrap();
-        return *r;
+        return *self.running.read().unwrap();
     }
 
     fn set_running(&mut self, b: bool) {
-        let mut r = self.running.lock().unwrap();
-        *r = b;
+        self.running.write().unwrap().clone_from(&b);
     }
 
     pub fn new() -> Evaluator {
-        return Evaluator {
-            running: Arc::new(Mutex::new(false)),
+        let mut ev = Evaluator {
+            running: Arc::new(RwLock::new(false)),
             result: PositionEvaluation {
                 score: 0,
                 best_move: None,
@@ -66,10 +133,18 @@ impl Evaluator {
             history_moves: [[0; MAX_PLY]; 12],
             started_at: 0,
             options: SearchOptions::new(),
-            tt: Arc::new(Mutex::new(TranspositionTable::new(1024))),
+            lltt: Arc::new(RwLock::new(TranspositionTable::new(1024))),
             repetition_table: Vec::with_capacity(150),
             counter_move_table: [[BitPackedMove::default(); 64]; 64],
+            nnue_data: vec![NNUEdata::default(); MAX_PLY],
+            nnue_data_ptrs: vec![std::ptr::null_mut(); 256],
         };
+
+        for i in 0..256 {
+            ev.nnue_data_ptrs[i] = ev.nnue_data.as_mut_ptr();
+        }
+
+        return ev;
     }
 
     /// Determines the time to spend on a move based on the time left for the side to move
@@ -118,8 +193,8 @@ impl Evaluator {
         &mut self,
         position: &mut Position,
         options: SearchOptions,
-        running: Arc<Mutex<bool>>,
-        transposition_table: Arc<Mutex<TranspositionTable>>,
+        running: Arc<RwLock<bool>>,
+        ll_transposition_table: Arc<RwLock<TranspositionTable>>,
         thread_id: usize,
         start_depth: u8,
     ) -> Option<chess::_move::BitPackedMove> {
@@ -141,7 +216,7 @@ impl Evaluator {
         self.set_move_time(position);
 
         self.running = running;
-        self.tt = transposition_table;
+        self.lltt = ll_transposition_table;
         self.started_at = Evaluator::_get_time_ms();
 
         let mut alpha = -50000;
@@ -150,7 +225,7 @@ impl Evaluator {
         let mut pv_line_completed_so_far = Vec::new();
         self.repetition_table.clear();
 
-        self.tt.lock().unwrap().increment_age();
+        self.lltt.write().unwrap().increment_age();
 
         loop {
             if current_depth > depth {
@@ -170,7 +245,7 @@ impl Evaluator {
             alpha = score - 50;
             beta = score + 50;
 
-            let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
+            let pv_line_found = self.lltt.read().unwrap().get_pv_line(position);
             if pv_line_found.len() > 0 {
                 pv_line_completed_so_far = pv_line_found;
             }
@@ -255,8 +330,8 @@ impl Evaluator {
         self.result.nodes += 1;
 
         let tt_entry = self
-            .tt
-            .lock()
+            .lltt
+            .read()
             .unwrap()
             .probe_entry(position.hash, depth, alpha, beta);
 
@@ -345,7 +420,7 @@ impl Evaluator {
             legal_moves_searched += 1;
 
             if _score >= beta {
-                self.tt.lock().unwrap().save(
+                self.lltt.write().unwrap().save(
                     position.hash,
                     depth,
                     tt::TranspositionTableEntryFlag::BETA,
@@ -405,8 +480,8 @@ impl Evaluator {
             }
         }
 
-        self.tt
-            .lock()
+        self.lltt
+            .write()
             .unwrap()
             .save(position.hash, depth, hash_f, alpha, alpha_move);
 
@@ -468,7 +543,7 @@ impl Evaluator {
         let nps: i32 =
             (self.result.nodes as f64 / ((stop_time - start_time) as f64 / 1000.0)) as i32;
         let pv_line_found: Vec<tt::TranspositionTableEntry> =
-            self.tt.lock().unwrap().get_pv_line(position);
+            self.lltt.read().unwrap().get_pv_line(position);
 
         let score = pv_line_found[0].get_value();
 
@@ -493,7 +568,7 @@ impl Evaluator {
                 self.result.nodes,
                 nps,
                 stop_time - start_time,
-                self.tt.lock().unwrap().get_hashfull()
+                self.lltt.read().unwrap().get_hashfull()
             );
 
             let mut pv_str: String = String::new();
@@ -592,7 +667,7 @@ impl Evaluator {
         let mut queue: BinaryHeap<PrioritizedMove> = BinaryHeap::with_capacity(moves.len());
 
         let mut tt_move: chess::_move::BitPackedMove = chess::_move::BitPackedMove::default();
-        if let Some(tt_entry) = self.tt.lock().unwrap().get(position.hash) {
+        if let Some(tt_entry) = self.lltt.read().unwrap().get(position.hash) {
             if tt_entry.get_move() != chess::_move::BitPackedMove::default()
                 && tt_entry.get_flag() == tt::TranspositionTableEntryFlag::EXACT
             {
@@ -608,14 +683,48 @@ impl Evaluator {
         queue
     }
 
-    pub fn evaluate(&mut self, position: &mut Position) -> i32 {
-        let material_score = position.material[position.turn as usize]
-            - position.material[(!position.turn) as usize];
+    pub fn evaluate_nnue(&mut self, position: &mut Position) -> i32 {
+        unsafe {
+            let num_pieces_on_board = position.occupancies[2].count_ones() as usize;
+            let mut pieces: Vec<i32> = Vec::with_capacity(num_pieces_on_board);
+            let mut squares: Vec<i32> = Vec::with_capacity(num_pieces_on_board);
 
-        return material_score
+            for piece in Piece::iter() {
+                let mut bb = position.bitboards[piece as usize];
+                while bb != 0 {
+                    let sq = bb.pop_lsb();
+                    pieces.push(piece_to_nnue_piece(piece) as i32);
+                    squares.push(sq_to_nnue_index(Square::from(sq)) as i32);
+                }
+            }
+
+            pieces.push(0);
+            squares.push(0);
+
+            return nnue_evaluate(
+                position.turn as i32,
+                pieces.as_mut_ptr(),
+                squares.as_mut_ptr(),
+            );
+        }
+    }
+
+    pub fn evaluate_classical(&mut self, position: &mut Position) -> i32 {
+        return self.evaluate_material(position)
             + self.evaluate_pawn_structure(position)
             + self.evaluate_open_files(position)
             + self.evaluate_king_safety(position);
+    }
+
+    pub fn evaluate(&mut self, position: &mut Position) -> i32 {
+        return self.evaluate_classical(position);
+    }
+
+    fn evaluate_material(&self, position: &mut Position) -> i32 {
+        unsafe {
+            position.material.get_unchecked(position.turn as usize)
+                - position.material.get_unchecked((!position.turn) as usize)
+        }
     }
 
     fn evaluate_pawn_structure(&mut self, position: &mut Position) -> i32 {
