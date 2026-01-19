@@ -18,6 +18,7 @@ use crate::{
 /// A chess position
 pub struct Position {
     pub bitboards: [u64; 12],
+    pub mailbox: [Piece; 64], // Piece-centric board for O(1) lookups
     pub turn: Color,
     pub enpassant: Option<Square>,
     pub castling: CastlingRights,
@@ -80,6 +81,7 @@ pub struct HistoryEntry {
 #[derive(Clone, Copy)]
 pub struct PositionState {
     pub bitboards: [u64; 12],
+    pub mailbox: [Piece; 64],
     pub turn: Color,
     pub enpassant: Option<Square>,
     pub castling: CastlingRights,
@@ -122,6 +124,7 @@ impl Board for Position {
     fn new(fen: Option<&str>) -> Position {
         let mut pos = Position {
             bitboards: [0; 12],
+            mailbox: [Piece::Empty; 64],
             turn: Color::White,
 
             pawn_attacks: [[0; 64]; 2],
@@ -282,10 +285,11 @@ impl Board for Position {
         // Split the fen
         let sections = fen.split(' ').collect::<Vec<&str>>();
 
-        // Clear the bitboards
+        // Clear the bitboards and mailbox
         for i in 0..12 {
             self.bitboards[i] = 0;
         }
+        self.mailbox = [Piece::Empty; 64];
 
         // Set the bitboard positions
         let mut pos = 0;
@@ -299,7 +303,9 @@ impl Board for Position {
                 continue;
             }
 
-            utils::set_bit(&mut self.bitboards[Piece::from(c) as usize], pos);
+            let piece = Piece::from(c);
+            utils::set_bit(&mut self.bitboards[piece as usize], pos);
+            self.mailbox[pos as usize] = piece;
             pos += 1;
         }
 
@@ -680,6 +686,7 @@ impl Position {
     pub fn save_state(&self) -> PositionState {
         PositionState {
             bitboards: self.bitboards,
+            mailbox: self.mailbox,
             turn: self.turn,
             enpassant: self.enpassant,
             castling: self.castling,
@@ -691,6 +698,7 @@ impl Position {
     #[inline(always)]
     pub fn restore_state(&mut self, state: PositionState) {
         self.bitboards = state.bitboards;
+        self.mailbox = state.mailbox;
         self.turn = state.turn;
         self.enpassant = state.enpassant;
         self.castling = state.castling;
@@ -704,20 +712,27 @@ impl Position {
         let from = m.get_from();
         let to = m.get_to();
 
-        // Move the piece
+        // Move the piece (bitboards)
         utils::clear_bit(&mut self.bitboards[piece as usize], from as u8);
         utils::set_bit(&mut self.bitboards[piece as usize], to as u8);
+
+        // Move the piece (mailbox)
+        self.mailbox[from as usize] = Piece::Empty;
+        self.mailbox[to as usize] = piece;
 
         // Handle captures
         if m.is_capture() {
             let captured_piece = m.get_capture();
             utils::clear_bit(&mut self.bitboards[captured_piece as usize], to as u8);
+            // mailbox[to] already set above
         }
 
         // Handle promotions
         if m.is_promotion() {
+            let promotion = m.get_promotion();
             utils::clear_bit(&mut self.bitboards[piece as usize], to as u8);
-            utils::set_bit(&mut self.bitboards[m.get_promotion() as usize], to as u8);
+            utils::set_bit(&mut self.bitboards[promotion as usize], to as u8);
+            self.mailbox[to as usize] = promotion;
         }
 
         // Handle en passant capture
@@ -729,6 +744,7 @@ impl Position {
                 Piece::WhitePawn
             };
             utils::clear_bit(&mut self.bitboards[en_captured_piece as usize], en_captured_square);
+            self.mailbox[en_captured_square as usize] = Piece::Empty;
         }
 
         // Set en passant square for double pawn pushes
@@ -746,18 +762,26 @@ impl Position {
                 Square::C1 => {
                     utils::clear_bit(&mut self.bitboards[Piece::WhiteRook as usize], Square::A1 as u8);
                     utils::set_bit(&mut self.bitboards[Piece::WhiteRook as usize], Square::D1 as u8);
+                    self.mailbox[Square::A1 as usize] = Piece::Empty;
+                    self.mailbox[Square::D1 as usize] = Piece::WhiteRook;
                 }
                 Square::G1 => {
                     utils::clear_bit(&mut self.bitboards[Piece::WhiteRook as usize], Square::H1 as u8);
                     utils::set_bit(&mut self.bitboards[Piece::WhiteRook as usize], Square::F1 as u8);
+                    self.mailbox[Square::H1 as usize] = Piece::Empty;
+                    self.mailbox[Square::F1 as usize] = Piece::WhiteRook;
                 }
                 Square::C8 => {
                     utils::clear_bit(&mut self.bitboards[Piece::BlackRook as usize], Square::A8 as u8);
                     utils::set_bit(&mut self.bitboards[Piece::BlackRook as usize], Square::D8 as u8);
+                    self.mailbox[Square::A8 as usize] = Piece::Empty;
+                    self.mailbox[Square::D8 as usize] = Piece::BlackRook;
                 }
                 Square::G8 => {
                     utils::clear_bit(&mut self.bitboards[Piece::BlackRook as usize], Square::H8 as u8);
                     utils::set_bit(&mut self.bitboards[Piece::BlackRook as usize], Square::F8 as u8);
+                    self.mailbox[Square::H8 as usize] = Piece::Empty;
+                    self.mailbox[Square::F8 as usize] = Piece::BlackRook;
                 }
                 _ => {}
             }
@@ -942,13 +966,9 @@ impl Position {
         self.hash = entry.hash;
     }
 
+    #[inline(always)]
     pub fn get_piece_at_square(&self, square: u8) -> Piece {
-        for piece in chess::piece::PIECE_ITER {
-            if utils::get_bit(self.bitboards[piece as usize], square) != 0 {
-                return piece;
-            }
-        }
-        return Piece::Empty;
+        self.mailbox[square as usize]
     }
 
     fn initialize_leaper_piece_attacks(&mut self) {
