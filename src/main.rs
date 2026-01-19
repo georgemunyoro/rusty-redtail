@@ -1,38 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use board::Board;
-use movegen::MoveGenerator;
-use uci::UCI;
+use redtail::board::{self, Board};
+use redtail::search;
+use redtail::tt;
+use redtail::utils::print_progress_bar;
+use redtail::Cutoffs;
 
-use crate::utils::print_progress_bar;
-
-mod board;
-mod chess;
-mod movegen;
-mod pst;
-mod search;
-mod tt;
 mod uci;
-mod utils;
-
-#[derive(Debug, Copy, Clone)]
-pub struct Cutoffs {
-    total: u32,
-    move_1: u32,
-    move_2: u32,
-    avg_cutoff_move_no: f32,
-}
-
-impl Cutoffs {
-    pub fn new() -> Self {
-        Self {
-            total: 0,
-            move_1: 0,
-            move_2: 0,
-            avg_cutoff_move_no: 0.0,
-        }
-    }
-}
+use uci::UCI;
 
 fn main() {
     let mut u = UCI::new();

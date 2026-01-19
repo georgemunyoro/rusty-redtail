@@ -1283,15 +1283,8 @@ impl Position {
 mod tests {
     use crate::{
         board::{constants, Board, Position},
-        chess::{constants::STARTING_FEN, piece::Piece, square::SQUARE_ITER},
-        movegen::MoveGenerator,
+        chess::{piece::Piece, square::SQUARE_ITER},
     };
-
-    extern crate test;
-
-    use test::{black_box, Bencher};
-
-    use super::_get_piece_value_bl;
 
     #[test]
     fn get_piece_at_square_and_set_fen_works() {
@@ -1356,106 +1349,6 @@ mod tests {
                 constants::BISHOP_MAGIC_NUMBERS[usize::from(u8::from(square))]
             );
         }
-    }
-
-    #[bench]
-    fn bench_get_piece_value(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(STARTING_FEN));
-        b.iter(|| {
-            for square in SQUARE_ITER {
-                let piece = board.get_piece_at_square(square as u8);
-
-                if piece != Piece::Empty {
-                    black_box(_get_piece_value_bl(
-                        piece as usize,
-                        square as usize,
-                        board.get_game_phase_score(),
-                    ));
-                }
-            }
-        });
-    }
-
-    #[bench]
-    fn bench_generate_moves(b: &mut Bencher) {
-        let mut board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        b.iter(|| {
-            board.generate_moves(false);
-        })
-    }
-
-    #[bench]
-    fn bench_generate_pawn_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_pawn_moves(&mut moves, false);
-        })
-    }
-
-    #[bench]
-    fn bench_generate_knight_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_knight_moves(&mut moves, false);
-        })
-    }
-
-    #[bench]
-    fn bench_generate_bishop_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_bishop_moves(&mut moves, false);
-        })
-    }
-
-    #[bench]
-    fn bench_generate_rook_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_rook_moves(&mut moves, false);
-        })
-    }
-
-    #[bench]
-    fn bench_generate_queen_moves(b: &mut Bencher) {
-        let board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_queen_moves(&mut moves, false);
-        })
-    }
-
-    #[bench]
-    fn bench_generate_king_moves(b: &mut Bencher) {
-        let mut board = <Position as Board>::new(Some(
-            "r3k2r/p1ppqpb1/Bn2pnpB/3PN3/1p2P3/2N2Q1p/PPP2PPP/R3K2R w KQkq - 0 1",
-        ));
-        let mut moves = Vec::with_capacity(256);
-        b.iter(|| {
-            moves.clear();
-            board.generate_king_moves(&mut moves, false);
-        })
     }
 }
 

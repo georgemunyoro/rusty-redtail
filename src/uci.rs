@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{
+use redtail::{
     board::{self, Board, Position},
     chess,
     movegen::MoveGenerator,
