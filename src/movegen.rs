@@ -668,21 +668,23 @@ impl MoveGenerator for Position {
         // Bulk counting: at depth 1, just count legal moves without recursing
         if depth == 1 {
             let mut count = 0;
+            let state = self.save_state();
             for m in moves {
-                if self.make_move(m, false) {
+                if self.make_move_unchecked(m) {
                     count += 1;
-                    self.unmake_move();
                 }
+                self.restore_state(state);
             }
             return count;
         }
 
         let mut nodes = 0;
+        let state = self.save_state();
         for m in moves {
-            if self.make_move(m, false) {
+            if self.make_move_unchecked(m) {
                 nodes += self.perft(depth - 1);
-                self.unmake_move();
             }
+            self.restore_state(state);
         }
 
         nodes

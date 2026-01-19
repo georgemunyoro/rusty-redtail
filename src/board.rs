@@ -76,6 +76,16 @@ pub struct HistoryEntry {
     pub hash: u64,
 }
 
+/// Lightweight position state for copy-make (only the fields that change during a move)
+#[derive(Clone, Copy)]
+pub struct PositionState {
+    pub bitboards: [u64; 12],
+    pub turn: Color,
+    pub enpassant: Option<Square>,
+    pub castling: CastlingRights,
+    pub occupancies: [u64; 3],
+}
+
 pub trait Board {
     fn new(fen: Option<&str>) -> Position;
     fn draw(&mut self);
@@ -665,6 +675,125 @@ impl Board for Position {
 }
 
 impl Position {
+    /// Save the current position state for copy-make
+    #[inline(always)]
+    pub fn save_state(&self) -> PositionState {
+        PositionState {
+            bitboards: self.bitboards,
+            turn: self.turn,
+            enpassant: self.enpassant,
+            castling: self.castling,
+            occupancies: self.occupancies,
+        }
+    }
+
+    /// Restore position state from a saved copy
+    #[inline(always)]
+    pub fn restore_state(&mut self, state: PositionState) {
+        self.bitboards = state.bitboards;
+        self.turn = state.turn;
+        self.enpassant = state.enpassant;
+        self.castling = state.castling;
+        self.occupancies = state.occupancies;
+    }
+
+    /// Lightweight make_move for perft - skips history stack and material/hash updates
+    /// Returns true if the move is legal, false otherwise
+    pub fn make_move_unchecked(&mut self, m: chess::_move::BitPackedMove) -> bool {
+        let piece = m.get_piece();
+        let from = m.get_from();
+        let to = m.get_to();
+
+        // Move the piece
+        utils::clear_bit(&mut self.bitboards[piece as usize], from as u8);
+        utils::set_bit(&mut self.bitboards[piece as usize], to as u8);
+
+        // Handle captures
+        if m.is_capture() {
+            let captured_piece = m.get_capture();
+            utils::clear_bit(&mut self.bitboards[captured_piece as usize], to as u8);
+        }
+
+        // Handle promotions
+        if m.is_promotion() {
+            utils::clear_bit(&mut self.bitboards[piece as usize], to as u8);
+            utils::set_bit(&mut self.bitboards[m.get_promotion() as usize], to as u8);
+        }
+
+        // Handle en passant capture
+        if m.is_enpassant() {
+            let en_captured_square = (to as u8) + (8 - (self.turn as u8 * 16));
+            let en_captured_piece = if self.turn == Color::White {
+                Piece::BlackPawn
+            } else {
+                Piece::WhitePawn
+            };
+            utils::clear_bit(&mut self.bitboards[en_captured_piece as usize], en_captured_square);
+        }
+
+        // Set en passant square for double pawn pushes
+        self.enpassant = None;
+        if piece == Piece::WhitePawn || piece == Piece::BlackPawn {
+            let diff = (from as i8 - to as i8).abs();
+            if diff == 16 {
+                self.enpassant = Some(Square::from(((from as i8 + to as i8) / 2) as u8));
+            }
+        }
+
+        // Handle castling - move the rook
+        if m.is_castle() {
+            match to {
+                Square::C1 => {
+                    utils::clear_bit(&mut self.bitboards[Piece::WhiteRook as usize], Square::A1 as u8);
+                    utils::set_bit(&mut self.bitboards[Piece::WhiteRook as usize], Square::D1 as u8);
+                }
+                Square::G1 => {
+                    utils::clear_bit(&mut self.bitboards[Piece::WhiteRook as usize], Square::H1 as u8);
+                    utils::set_bit(&mut self.bitboards[Piece::WhiteRook as usize], Square::F1 as u8);
+                }
+                Square::C8 => {
+                    utils::clear_bit(&mut self.bitboards[Piece::BlackRook as usize], Square::A8 as u8);
+                    utils::set_bit(&mut self.bitboards[Piece::BlackRook as usize], Square::D8 as u8);
+                }
+                Square::G8 => {
+                    utils::clear_bit(&mut self.bitboards[Piece::BlackRook as usize], Square::H8 as u8);
+                    utils::set_bit(&mut self.bitboards[Piece::BlackRook as usize], Square::F8 as u8);
+                }
+                _ => {}
+            }
+        }
+
+        // Update castling rights
+        if piece == Piece::WhiteKing {
+            self.castling.remove_right(CastlingRights::WHITE_KINGSIDE | CastlingRights::WHITE_QUEENSIDE);
+        } else if piece == Piece::BlackKing {
+            self.castling.remove_right(CastlingRights::BLACK_KINGSIDE | CastlingRights::BLACK_QUEENSIDE);
+        } else if piece == Piece::WhiteRook {
+            if from == Square::A1 {
+                self.castling.remove_right(CastlingRights::WHITE_QUEENSIDE);
+            } else if from == Square::H1 {
+                self.castling.remove_right(CastlingRights::WHITE_KINGSIDE);
+            }
+        } else if piece == Piece::BlackRook {
+            if from == Square::A8 {
+                self.castling.remove_right(CastlingRights::BLACK_QUEENSIDE);
+            } else if from == Square::H8 {
+                self.castling.remove_right(CastlingRights::BLACK_KINGSIDE);
+            }
+        }
+
+        // Update occupancies
+        self.update_occupancies();
+
+        // Check if king is in check (move is illegal)
+        if self.is_in_check() {
+            return false;
+        }
+
+        self.turn = !self.turn;
+        true
+    }
+
     pub fn set_file_rank_mask(&mut self, file_num: i32, rank_num: i32) -> u64 {
         let mut mask: u64 = 0;
 
