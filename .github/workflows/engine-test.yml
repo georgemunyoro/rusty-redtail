@@ -1,0 +1,186 @@
+name: Engine Strength Test
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      games:
+        description: 'Number of game pairs to play'
+        required: false
+        default: '250'
+      time_control:
+        description: 'Time control (e.g., 5+0.05)'
+        required: false
+        default: '5+0.05'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout baseline (main branch)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: baseline
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build baseline engine
+        working-directory: baseline
+        run: cargo build --release
+
+      - name: Upload baseline binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-engine
+          path: baseline/target/release/redtail
+
+  build-new:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build new engine
+        run: cargo build --release
+
+      - name: Upload new binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: new-engine
+          path: target/release/redtail
+
+  engine-match:
+    needs: [build-baseline, build-new]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for scripts)
+        uses: actions/checkout@v4
+
+      - name: Install cutechess-cli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cutechess
+
+      - name: Download baseline engine
+        uses: actions/download-artifact@v4
+        with:
+          name: baseline-engine
+          path: engines/baseline
+
+      - name: Download new engine
+        uses: actions/download-artifact@v4
+        with:
+          name: new-engine
+          path: engines/new
+
+      - name: Make engines executable
+        run: |
+          chmod +x engines/baseline/redtail
+          chmod +x engines/new/redtail
+
+      - name: Download opening book
+        run: |
+          curl -sL -o openings.epd \
+            "https://raw.githubusercontent.com/official-stockfish/books/master/UHO_XXL_%2B0.90_%2B1.19.epd"
+
+      - name: Run engine match (SPRT)
+        id: match
+        run: |
+          GAMES=${{ github.event.inputs.games || '250' }}
+          TC=${{ github.event.inputs.time_control || '5+0.05' }}
+
+          echo "Running $GAMES game pairs with TC=$TC"
+
+          cutechess-cli \
+            -engine name=new cmd=./engines/new/redtail proto=uci \
+            -engine name=baseline cmd=./engines/baseline/redtail proto=uci \
+            -each tc=$TC \
+            -rounds $GAMES \
+            -games 2 \
+            -repeat \
+            -sprt elo0=0 elo1=10 alpha=0.05 beta=0.05 \
+            -openings file=openings.epd format=epd order=random \
+            -concurrency 2 \
+            -ratinginterval 10 \
+            -pgnout games.pgn \
+            2>&1 | tee match_output.txt
+
+          # Extract final result
+          echo "## Match Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -20 match_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          # Check if SPRT passed (H1 accepted = Elo gain)
+          if grep -q "H1 was accepted" match_output.txt; then
+            echo "result=passed" >> $GITHUB_OUTPUT
+            echo "### ✅ SPRT Passed - Elo Gain Detected" >> $GITHUB_STEP_SUMMARY
+          elif grep -q "H0 was accepted" match_output.txt; then
+            echo "result=failed" >> $GITHUB_OUTPUT
+            echo "### ❌ SPRT Failed - No Elo Gain" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "result=inconclusive" >> $GITHUB_OUTPUT
+            echo "### ⚠️ SPRT Inconclusive - Need More Games" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload match results
+        uses: actions/upload-artifact@v4
+        with:
+          name: match-results
+          path: |
+            match_output.txt
+            games.pgn
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('match_output.txt', 'utf8');
+            const lines = output.split('\n');
+            const last20 = lines.slice(-25).join('\n');
+
+            let status = '${{ steps.match.outputs.result }}';
+            let emoji = status === 'passed' ? '✅' : status === 'failed' ? '❌' : '⚠️';
+
+            const body = `## ${emoji} Engine Test Results
+
+            \`\`\`
+            ${last20}
+            \`\`\`
+
+            <details>
+            <summary>Test Parameters</summary>
+
+            - Games: ${{ github.event.inputs.games || '250' }} pairs
+            - Time Control: ${{ github.event.inputs.time_control || '5+0.05' }}
+            - SPRT bounds: elo0=0, elo1=10, alpha=0.05, beta=0.05
+
+            </details>
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail if no Elo gain
+        if: steps.match.outputs.result == 'failed'
+        run: |
+          echo "SPRT test failed - change does not improve engine strength"
+          exit 1
