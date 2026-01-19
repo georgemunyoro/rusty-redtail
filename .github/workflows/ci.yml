@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Run benchmarks (dry run)
+        run: cargo bench --bench movegen -- --test
+
+  perft-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Validate perft results
+        run: |
+          echo "Testing perft correctness..."
+
+          # Start position perft values (well-known correct values)
+          ./target/release/redtail <<EOF | tee perft_output.txt
+          position startpos
+          perft 5
+          quit
+          EOF
+
+          # Check perft 5 = 4865609
+          if grep -q "4865609" perft_output.txt; then
+            echo "✅ Perft 5 starting position: PASSED"
+          else
+            echo "❌ Perft 5 starting position: FAILED (expected 4865609)"
+            exit 1
+          fi
+
+          # Kiwipete position (complex middlegame)
+          ./target/release/redtail <<EOF | tee perft_kiwi.txt
+          position fen r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1
+          perft 4
+          quit
+          EOF
+
+          # Check perft 4 = 4085603
+          if grep -q "4085603" perft_kiwi.txt; then
+            echo "✅ Perft 4 Kiwipete: PASSED"
+          else
+            echo "❌ Perft 4 Kiwipete: FAILED (expected 4085603)"
+            exit 1
+          fi
+
+          echo ""
+          echo "All perft tests passed!"
