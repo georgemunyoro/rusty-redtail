@@ -1,10 +1,14 @@
 use std::{
-    io,
-    sync::{Arc, Mutex},
+    io::{self, BufRead},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc,
+    },
+    thread,
 };
 
 use redtail::{
-    board::{self, Board, Position},
+    board::{Board, Position},
     chess,
     movegen::MoveGenerator,
     search::evaluate::*,
@@ -15,31 +19,54 @@ use redtail::{
 
 pub struct UCI {
     position: Position,
-    shared_transposition_table: Arc<Mutex<tt::TranspositionTable>>,
-    is_searching: Arc<Mutex<bool>>,
-    search_threads: Vec<std::thread::JoinHandle<()>>,
+    transposition_table: tt::TranspositionTable,
+    evaluator: Evaluator,
+    stop_flag: Arc<AtomicBool>,
 }
 
 impl UCI {
     pub fn new() -> UCI {
         let mut uci = UCI {
             position: Position::new(None),
-            shared_transposition_table: Arc::new(Mutex::new(tt::TranspositionTable::new(2048))),
-            is_searching: Arc::new(Mutex::new(false)),
-            search_threads: vec![],
+            transposition_table: tt::TranspositionTable::new(2048),
+            evaluator: Evaluator::new(),
+            stop_flag: Arc::new(AtomicBool::new(false)),
         };
         uci.position
             .set_fen(String::from(chess::constants::STARTING_FEN));
-        return uci;
+        uci
     }
 
     pub fn uci_loop(&mut self) {
+        // Create a channel to receive commands from stdin reader thread
+        let (tx, rx) = mpsc::channel::<String>();
+
+        // Spawn a thread to read stdin that also handles stop directly
+        let stop_flag_for_reader = Arc::clone(&self.stop_flag);
+        thread::spawn(move || {
+            let stdin = io::stdin();
+            for line in stdin.lock().lines() {
+                if let Ok(line) = line {
+                    // Handle stop immediately by setting the flag
+                    if line.trim() == "stop" {
+                        stop_flag_for_reader.store(true, Ordering::SeqCst);
+                    }
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+
         loop {
-            let mut buffer = String::new();
-            io::stdin().read_line(&mut buffer).unwrap();
+            let buffer = match rx.recv() {
+                Ok(line) => line,
+                Err(_) => break,
+            };
+
             let tokens = Iterator::collect::<Vec<&str>>(buffer.trim().split_whitespace());
 
-            if tokens.len() == 0 {
+            if tokens.is_empty() {
                 continue;
             };
 
@@ -64,9 +91,9 @@ impl UCI {
 
                 "position" => self.handle_position(tokens),
 
-                "go" => self.go(tokens),
+                "go" => self.go(tokens, &rx),
 
-                "stop" => self.stop_searching(),
+                "stop" => {} // Already handled in reader thread
 
                 "quit" => break,
 
@@ -117,19 +144,6 @@ impl UCI {
         }
     }
 
-    /// Stops any current searches and prints the best move if any
-    fn stop_searching(&mut self) {
-        {
-            let mut r = self.is_searching.lock().unwrap();
-            *r = false;
-        }
-
-        while self.search_threads.len() > 0 {
-            let cur_thread = self.search_threads.pop();
-            cur_thread.unwrap().join().unwrap();
-        }
-    }
-
     /// Prints perft stats for the current position at the given depth
     fn perft(&mut self, tokens: Vec<&str>) {
         if tokens.len() < 2 {
@@ -145,45 +159,25 @@ impl UCI {
     }
 
     /// Start searching with given options
-    fn go(&mut self, tokens: Vec<&str>) {
+    fn go(&mut self, tokens: Vec<&str>, rx: &mpsc::Receiver<String>) {
         let options = SearchOptions::from(tokens);
-        let tt = Arc::clone(&self.shared_transposition_table);
-        let is_searching = Arc::clone(&self.is_searching);
-        self.search_threads.push(self.create_search_thread(
-            self.position.as_fen(),
+        self.stop_flag.store(false, Ordering::SeqCst);
+        let stop_flag = Arc::clone(&self.stop_flag);
+
+        // Run the search - stdin reader thread will set stop_flag if "stop" is received
+        self.evaluator.get_best_move(
+            &mut self.position,
             options,
-            is_searching,
-            tt,
-            0,
-        ));
-    }
+            &mut self.transposition_table,
+            &stop_flag,
+        );
 
-    /// Creates and starts a search thread
-    fn create_search_thread(
-        &self,
-        position_fen: String,
-        search_options: SearchOptions,
-        is_searching: Arc<Mutex<bool>>,
-        transposition_table: Arc<Mutex<tt::TranspositionTable>>,
-        thread_id: usize,
-    ) -> std::thread::JoinHandle<()> {
-        let position_fen_clone = String::from(position_fen.clone());
-        let is_searching = Arc::clone(&is_searching);
-        let transpos_table_clone = Arc::clone(&transposition_table);
-
-        return std::thread::spawn(move || {
-            let mut eval_position = board::Position::new(None);
-            eval_position.set_fen(String::from(position_fen_clone));
-
-            let mut evaluator = Evaluator::new();
-            evaluator.get_best_move(
-                &mut eval_position,
-                search_options,
-                is_searching,
-                transpos_table_clone,
-                thread_id,
-                1 + thread_id as u8,
-            );
-        });
+        // Process any commands that arrived during search
+        while let Ok(cmd) = rx.try_recv() {
+            match cmd.trim() {
+                "quit" => std::process::exit(0),
+                _ => {}
+            }
+        }
     }
 }

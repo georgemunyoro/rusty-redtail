@@ -1,6 +1,9 @@
 use std::{
     collections::BinaryHeap,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use crate::{
@@ -29,31 +32,21 @@ pub struct PositionEvaluation {
 }
 
 pub struct Evaluator {
-    pub running: Arc<Mutex<bool>>,
+    pub running: bool,
     pub result: PositionEvaluation,
     pub killer_moves: [[chess::_move::BitPackedMove; MAX_PLY]; 2],
     pub history_moves: [[u32; MAX_PLY]; 12],
     pub started_at: u128,
     pub options: SearchOptions,
-    pub tt: Arc<Mutex<TranspositionTable>>,
     pub repetition_table: Vec<u64>,
     counter_move_table: [[BitPackedMove; 64]; 64],
+    stop_flag: Option<Arc<AtomicBool>>,
 }
 
 impl Evaluator {
-    fn is_running(&mut self) -> bool {
-        let r = self.running.lock().unwrap();
-        return *r;
-    }
-
-    fn set_running(&mut self, b: bool) {
-        let mut r = self.running.lock().unwrap();
-        *r = b;
-    }
-
     pub fn new() -> Evaluator {
-        return Evaluator {
-            running: Arc::new(Mutex::new(false)),
+        Evaluator {
+            running: false,
             result: PositionEvaluation {
                 score: 0,
                 best_move: None,
@@ -66,10 +59,18 @@ impl Evaluator {
             history_moves: [[0; MAX_PLY]; 12],
             started_at: 0,
             options: SearchOptions::new(),
-            tt: Arc::new(Mutex::new(TranspositionTable::new(1024))),
             repetition_table: Vec::with_capacity(150),
             counter_move_table: [[BitPackedMove::default(); 64]; 64],
-        };
+            stop_flag: None,
+        }
+    }
+
+    fn is_stopped(&self) -> bool {
+        if let Some(ref flag) = self.stop_flag {
+            flag.load(Ordering::SeqCst)
+        } else {
+            false
+        }
     }
 
     /// Determines the time to spend on a move based on the time left for the side to move
@@ -118,11 +119,10 @@ impl Evaluator {
         &mut self,
         position: &mut Position,
         options: SearchOptions,
-        running: Arc<Mutex<bool>>,
-        transposition_table: Arc<Mutex<TranspositionTable>>,
-        thread_id: usize,
-        start_depth: u8,
+        tt: &mut TranspositionTable,
+        stop_flag: &Arc<AtomicBool>,
     ) -> Option<chess::_move::BitPackedMove> {
+        self.stop_flag = Some(Arc::clone(stop_flag));
         self.result = PositionEvaluation {
             score: 0,
             best_move: None,
@@ -140,17 +140,27 @@ impl Evaluator {
         self.options = options;
         self.set_move_time(position);
 
-        self.running = running;
-        self.tt = transposition_table;
+        self.running = true;
         self.started_at = Evaluator::_get_time_ms();
 
         let mut alpha = -50000;
         let mut beta = 50000;
-        let mut current_depth = start_depth;
+        let mut current_depth = 1;
         let mut pv_line_completed_so_far = Vec::new();
         self.repetition_table.clear();
 
-        self.tt.lock().unwrap().increment_age();
+        // Get a fallback move in case search doesn't complete
+        let legal_moves = position.generate_moves(false);
+        let mut fallback_move = chess::_move::BitPackedMove::default();
+        for m in legal_moves {
+            if position.make_move(m, false) {
+                position.unmake_move();
+                fallback_move = m;
+                break;
+            }
+        }
+
+        tt.increment_age();
 
         loop {
             if current_depth > depth {
@@ -159,7 +169,7 @@ impl Evaluator {
 
             let start_time = Evaluator::_get_time_ms();
 
-            let score = self.negamax(position, alpha, beta, current_depth, false, None);
+            let score = self.negamax(position, alpha, beta, current_depth, false, None, tt);
 
             if score <= alpha || score >= beta {
                 alpha = -50000;
@@ -170,35 +180,27 @@ impl Evaluator {
             alpha = score - 50;
             beta = score + 50;
 
-            let pv_line_found = self.tt.lock().unwrap().get_pv_line(position);
+            let pv_line_found = tt.get_pv_line(position);
             if pv_line_found.len() > 0 {
                 pv_line_completed_so_far = pv_line_found;
             }
 
-            if !self.is_running() {
+            if !self.running {
                 break;
             }
 
-            if thread_id == 0 {
-                self.print_info(position, start_time);
-            }
+            self.print_info(position, start_time, tt);
             current_depth += 1;
         }
 
-        if thread_id != 0 {
-            return None;
-        }
-
-        let mut b = chess::_move::BitPackedMove::default();
-
-        if pv_line_completed_so_far.len() > 0 {
-            b = pv_line_completed_so_far[0].get_move();
-            println!("bestmove {}", pv_line_completed_so_far[0].get_move());
+        let best_move = if pv_line_completed_so_far.len() > 0 {
+            pv_line_completed_so_far[0].get_move()
         } else {
-            println!("bestmove {}", chess::_move::BitPackedMove::default());
-        }
+            fallback_move
+        };
 
-        return Some(b);
+        println!("bestmove {}", best_move);
+        Some(best_move)
     }
 
     pub fn negamax(
@@ -209,13 +211,19 @@ impl Evaluator {
         _depth: u8,
         was_last_move_null: bool,
         last_move: Option<BitPackedMove>,
+        tt: &mut TranspositionTable,
     ) -> i32 {
         let mut alpha = _alpha;
         let mut depth = _depth; // will be mutable later for search extensions
         let mut alpha_move = chess::_move::BitPackedMove::default();
 
+        // Prevent stack overflow from deep recursion
+        if self.result.ply >= MAX_PLY as u32 - 1 {
+            return self.evaluate(position);
+        }
+
         if self.result.nodes & 2047 == 0 {
-            self.set_running(self.check_time());
+            self.running = self.check_time();
         }
 
         let is_in_check = position.is_in_check();
@@ -224,7 +232,7 @@ impl Evaluator {
             position.make_null_move();
             self.result.ply += 1;
 
-            let null_move_score = -self.negamax(position, -beta, -beta + 1, depth - 3, true, None);
+            let null_move_score = -self.negamax(position, -beta, -beta + 1, depth - 3, true, None, tt);
 
             position.unmake_move();
             self.result.ply -= 1;
@@ -232,10 +240,6 @@ impl Evaluator {
             if null_move_score >= beta {
                 return beta;
             }
-        }
-
-        if self.result.ply >= MAX_PLY as u32 {
-            return self.evaluate(position);
         }
 
         if is_in_check {
@@ -254,11 +258,7 @@ impl Evaluator {
 
         self.result.nodes += 1;
 
-        let tt_entry = self
-            .tt
-            .lock()
-            .unwrap()
-            .probe_entry(position.hash, depth, alpha, beta);
+        let tt_entry = tt.probe_entry(position.hash, depth, alpha, beta);
 
         if tt_entry.is_valid() {
             if tt_entry.get_flag() == tt::TranspositionTableEntryFlag::EXACT && self.result.ply == 0
@@ -272,16 +272,16 @@ impl Evaluator {
         if depth == 1 {
             let static_evaluation = self.evaluate(position);
             if (static_evaluation + FUTILITY_MARGIN) < alpha {
-                return self.quiescence(position, alpha, beta);
+                return self.quiescence(position, alpha, beta, tt);
             }
         }
 
         if depth == 0 {
-            return self.quiescence(position, alpha, beta);
+            return self.quiescence(position, alpha, beta, tt);
         }
 
         let mut legal_moves_searched = 0;
-        let mut queue = self.order_moves_p(position.generate_moves(false), position, last_move);
+        let mut queue = self.order_moves_p(position.generate_moves(false), position, last_move, tt);
         let mut found_pv = false;
         let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
 
@@ -298,16 +298,16 @@ impl Evaluator {
 
             // If we have found a pv move, then we need to search it with a null window
             if found_pv {
-                _score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false, None);
+                _score = -self.negamax(position, -alpha - 1, -alpha, depth - 1, false, None, tt);
 
                 // If our pv move fails, then we need to search again with a full window
                 if (_score > alpha) && (_score < beta) {
-                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None);
+                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None, tt);
                 }
             } else {
                 if legal_moves_searched == 0 {
                     // If we have not found a pv move, and this is the first move, then we need to search with a full window
-                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None);
+                    _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None, tt);
                 } else {
                     if legal_moves_searched >= _FULL_DEPTH_MOVES
                         && depth >= _REDUCTION_LIMIT
@@ -316,7 +316,7 @@ impl Evaluator {
                         && !pm.m.is_capture()
                     {
                         _score =
-                            -self.negamax(position, -alpha - 1, -alpha, depth - 2, false, None);
+                            -self.negamax(position, -alpha - 1, -alpha, depth - 2, false, None, tt);
                     } else {
                         _score = alpha + 1;
                     }
@@ -324,11 +324,11 @@ impl Evaluator {
                     // If we found a better move during LMR
                     if _score > alpha {
                         _score =
-                            -self.negamax(position, -alpha - 1, -alpha, depth - 1, false, None);
+                            -self.negamax(position, -alpha - 1, -alpha, depth - 1, false, None, tt);
 
                         // if our LMR move fails, then we need to search again with a full window
                         if (_score > alpha) && (_score < beta) {
-                            _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None);
+                            _score = -self.negamax(position, -beta, -alpha, depth - 1, false, None, tt);
                         }
                     }
                 }
@@ -338,14 +338,14 @@ impl Evaluator {
             self.repetition_table.pop();
             position.unmake_move();
 
-            if !self.is_running() {
+            if !self.running {
                 return 0;
             }
 
             legal_moves_searched += 1;
 
             if _score >= beta {
-                self.tt.lock().unwrap().save(
+                tt.save(
                     position.hash,
                     depth,
                     tt::TranspositionTableEntryFlag::BETA,
@@ -365,14 +365,14 @@ impl Evaluator {
                 // cutof testing
                 // ==============
 
-                if legal_moves_searched == 1 {
-                    self.result.cutoffs.move_1 += 1;
-                }
-                if legal_moves_searched == 2 {
-                    self.result.cutoffs.move_2 += 1;
-                }
-                self.result.cutoffs.avg_cutoff_move_no += legal_moves_searched as f32;
-                self.result.cutoffs.total += 1;
+                // if legal_moves_searched == 1 {
+                //     self.result.cutoffs.move_1 += 1;
+                // }
+                // if legal_moves_searched == 2 {
+                //     self.result.cutoffs.move_2 += 1;
+                // }
+                // self.result.cutoffs.avg_cutoff_move_no += legal_moves_searched as f32;
+                // self.result.cutoffs.total += 1;
 
                 // ==============
                 // ==============
@@ -405,19 +405,21 @@ impl Evaluator {
             }
         }
 
-        self.tt
-            .lock()
-            .unwrap()
-            .save(position.hash, depth, hash_f, alpha, alpha_move);
+        tt.save(position.hash, depth, hash_f, alpha, alpha_move);
 
-        return alpha;
+        alpha
     }
 
-    fn quiescence(&mut self, position: &mut Position, _alpha: i32, beta: i32) -> i32 {
+    fn quiescence(&mut self, position: &mut Position, _alpha: i32, beta: i32, tt: &mut TranspositionTable) -> i32 {
         let mut alpha = _alpha;
 
+        // Prevent stack overflow from deep recursion
+        if self.result.ply >= MAX_PLY as u32 - 1 {
+            return self.evaluate(position);
+        }
+
         if self.result.nodes & 2047 == 0 {
-            self.set_running(self.check_time());
+            self.running = self.check_time();
         }
 
         self.result.nodes += 1;
@@ -430,7 +432,7 @@ impl Evaluator {
             alpha = stand_pat
         }
 
-        let mut queue = self.order_moves_p(position.generate_moves(true), position, None);
+        let mut queue = self.order_moves_p(position.generate_moves(true), position, None, tt);
         while let Some(pm) = queue.pop() {
             if !pm.m.is_capture() {
                 continue;
@@ -442,12 +444,12 @@ impl Evaluator {
             }
 
             self.result.ply += 1;
-            let score = -self.quiescence(position, -beta, -alpha);
+            let score = -self.quiescence(position, -beta, -alpha, tt);
             self.result.ply -= 1;
 
             position.unmake_move();
 
-            if !self.is_running() {
+            if !self.running {
                 return 0;
             }
 
@@ -460,15 +462,14 @@ impl Evaluator {
             }
         }
 
-        return alpha;
+        alpha
     }
 
-    pub fn print_info(&self, position: &mut Position, start_time: u128) {
+    pub fn print_info(&self, position: &mut Position, start_time: u128, tt: &mut TranspositionTable) {
         let stop_time: u128 = Evaluator::_get_time_ms();
         let nps: i32 =
             (self.result.nodes as f64 / ((stop_time - start_time) as f64 / 1000.0)) as i32;
-        let pv_line_found: Vec<tt::TranspositionTableEntry> =
-            self.tt.lock().unwrap().get_pv_line(position);
+        let pv_line_found: Vec<tt::TranspositionTableEntry> = tt.get_pv_line(position);
 
         let score = pv_line_found[0].get_value();
 
@@ -493,7 +494,7 @@ impl Evaluator {
                 self.result.nodes,
                 nps,
                 stop_time - start_time,
-                self.tt.lock().unwrap().get_hashfull()
+                tt.get_hashfull()
             );
 
             let mut pv_str: String = String::new();
@@ -508,6 +509,10 @@ impl Evaluator {
     }
 
     fn check_time(&self) -> bool {
+        if self.is_stopped() {
+            return false;
+        }
+
         if self.options.infinite {
             return true;
         }
@@ -588,11 +593,12 @@ impl Evaluator {
         moves: Vec<chess::_move::BitPackedMove>,
         position: &mut Position,
         last_move: Option<BitPackedMove>,
+        tt: &TranspositionTable,
     ) -> BinaryHeap<PrioritizedMove> {
         let mut queue: BinaryHeap<PrioritizedMove> = BinaryHeap::with_capacity(moves.len());
 
         let mut tt_move: chess::_move::BitPackedMove = chess::_move::BitPackedMove::default();
-        if let Some(tt_entry) = self.tt.lock().unwrap().get(position.hash) {
+        if let Some(tt_entry) = tt.get(position.hash) {
             if tt_entry.get_move() != chess::_move::BitPackedMove::default()
                 && tt_entry.get_flag() == tt::TranspositionTableEntryFlag::EXACT
             {
@@ -739,24 +745,66 @@ impl Evaluator {
     fn evaluate_king_safety(&mut self, position: &mut Position) -> i32 {
         // white king safety
         let white_king_position = utils::get_lsb(position.bitboards[Piece::WhiteKing as usize]);
-        let white_score = utils::count_bits(
-            position.king_attacks[white_king_position as usize]
-                & position.bitboards[Piece::WhitePawn as usize],
-        ) as i32
-            * 6;
+        let white_score = if white_king_position < 64 {
+            utils::count_bits(
+                position.king_attacks[white_king_position as usize]
+                    & position.bitboards[Piece::WhitePawn as usize],
+            ) as i32
+                * 6
+        } else {
+            0
+        };
 
         // black king safety
         let black_king_position = utils::get_lsb(position.bitboards[Piece::BlackKing as usize]);
-        let black_score = utils::count_bits(
-            position.king_attacks[black_king_position as usize]
-                & position.bitboards[Piece::BlackPawn as usize],
-        ) as i32
-            * 6;
+        let black_score = if black_king_position < 64 {
+            utils::count_bits(
+                position.king_attacks[black_king_position as usize]
+                    & position.bitboards[Piece::BlackPawn as usize],
+            ) as i32
+                * 6
+        } else {
+            0
+        };
 
-        return if position.turn == Color::White {
+        if position.turn == Color::White {
             white_score - black_score
         } else {
             black_score - white_score
-        };
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board::Board;
+    use crate::chess::constants::STARTING_FEN;
+    use crate::chess::square::Square;
+
+    #[test]
+    fn short_movetime_returns_legal_move() {
+        let mut position = Position::new(Some(STARTING_FEN));
+        let mut evaluator = Evaluator::new();
+        let mut tt = TranspositionTable::new(32);
+        let stop_flag = Arc::new(AtomicBool::new(false));
+
+        let mut options = SearchOptions::new();
+        options.movetime = Some(1); // 1ms - very short time
+
+        let best_move = evaluator.get_best_move(&mut position, options, &mut tt, &stop_flag);
+
+        assert!(best_move.is_some());
+        let m = best_move.unwrap();
+
+        // The move should not be the default a8a8 move
+        assert!(
+            !(m.get_from() == Square::A8 && m.get_to() == Square::A8),
+            "Expected a legal move, got default a8a8"
+        );
+
+        // Verify the move is actually legal by trying to make it
+        let is_legal = position.make_move(m, false);
+        assert!(is_legal, "Expected a legal move, but move was illegal");
     }
 }

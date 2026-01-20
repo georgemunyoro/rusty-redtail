@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{atomic::AtomicBool, Arc};
 
 use redtail::board::{self, Board};
 use redtail::search;
@@ -20,6 +20,7 @@ fn _cutoff_testing() {
     let mut global_cutoffs = Cutoffs::new();
 
     let mut index = 0;
+    let stop_flag = Arc::new(AtomicBool::new(false));
 
     for fen in Y {
         position.set_fen(String::from(fen));
@@ -27,8 +28,7 @@ fn _cutoff_testing() {
 
         let mut search_options = search::options::SearchOptions::new();
         search_options.depth = Some(8);
-        let is_searching = Arc::new(Mutex::new(true));
-        let transposition_table = Arc::new(Mutex::new(tt::TranspositionTable::new(32)));
+        let mut transposition_table = tt::TranspositionTable::new(32);
 
         index += 1;
         let progress = (index as f32) / (Y.len() as f32);
@@ -36,10 +36,8 @@ fn _cutoff_testing() {
         evaluator.get_best_move(
             &mut position,
             search_options,
-            is_searching,
-            transposition_table,
-            0,
-            1,
+            &mut transposition_table,
+            &stop_flag,
         );
 
         print!("\x1B[2J\x1B[1;1H");

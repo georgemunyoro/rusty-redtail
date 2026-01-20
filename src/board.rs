@@ -491,17 +491,20 @@ impl Board for Position {
             if get_bit(self.occupancies[2], en_captured_square) != 0 {
                 let en_captured_piece = self.get_piece_at_square(en_captured_square);
 
-                // remove the captured pawn
-                utils::clear_bit(
-                    &mut self.bitboards[en_captured_piece as usize],
-                    en_captured_square,
-                );
+                // Guard against empty square (index 12)
+                if (en_captured_piece as usize) < 12 {
+                    // remove the captured pawn
+                    utils::clear_bit(
+                        &mut self.bitboards[en_captured_piece as usize],
+                        en_captured_square,
+                    );
 
-                self.material[!self.turn as usize] -= _get_piece_value_bl(
-                    en_captured_piece as usize,
-                    en_captured_square as usize,
-                    game_phase_score,
-                );
+                    self.material[!self.turn as usize] -= _get_piece_value_bl(
+                        en_captured_piece as usize,
+                        en_captured_square as usize,
+                        game_phase_score,
+                    );
+                }
             }
         }
 
