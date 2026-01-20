@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       games:
-        description: 'Number of game pairs to play'
+        description: "Number of game pairs to play"
         required: false
-        default: '250'
+        default: "250"
       time_control:
-        description: 'Time control (e.g., 5+0.05)'
+        description: "Time control (e.g., 5+0.05)"
         required: false
-        default: '1+0.1'
+        default: "5+0.05"
 
 env:
   CARGO_TERM_COLOR: always
@@ -141,7 +141,7 @@ jobs:
         id: match
         run: |
           GAMES=${{ github.event.inputs.games || '250' }}
-          TC=${{ github.event.inputs.time_control || '1+0.1' }}
+          TC=${{ github.event.inputs.time_control || '5+0.05' }}
 
           echo "Running $GAMES game pairs with TC=$TC"
 
@@ -208,7 +208,7 @@ jobs:
             <summary>Test Parameters</summary>
 
             - Games: ${{ github.event.inputs.games || '250' }} pairs
-            - Time Control: ${{ github.event.inputs.time_control || '1+0.1' }}
+            - Time Control: ${{ github.event.inputs.time_control || '5+0.05' }}
             - SPRT bounds: elo0=0, elo1=10, alpha=0.05, beta=0.05
 
             </details>
