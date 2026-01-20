@@ -150,6 +150,17 @@ impl Evaluator {
         let mut pv_line_completed_so_far = Vec::new();
         self.repetition_table.clear();
 
+        // Get a fallback move in case search doesn't complete
+        let legal_moves = position.generate_moves(false);
+        let mut fallback_move = chess::_move::BitPackedMove::default();
+        for m in legal_moves {
+            if position.make_move(m, false) {
+                position.unmake_move();
+                fallback_move = m;
+                break;
+            }
+        }
+
         self.tt.lock().unwrap().increment_age();
 
         loop {
@@ -189,14 +200,13 @@ impl Evaluator {
             return None;
         }
 
-        let mut b = chess::_move::BitPackedMove::default();
-
-        if pv_line_completed_so_far.len() > 0 {
-            b = pv_line_completed_so_far[0].get_move();
-            println!("bestmove {}", pv_line_completed_so_far[0].get_move());
+        let b = if !pv_line_completed_so_far.is_empty() {
+            pv_line_completed_so_far[0].get_move()
         } else {
-            println!("bestmove {}", chess::_move::BitPackedMove::default());
-        }
+            fallback_move
+        };
+
+        println!("bestmove {}", b);
 
         return Some(b);
     }
