@@ -72,7 +72,15 @@ jobs:
       - name: Checkout (for scripts)
         uses: actions/checkout@v4
 
+      - name: Cache cutechess-cli
+        id: cache-cutechess
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/cutechess-cli
+          key: cutechess-cli-v1
+
       - name: Install cutechess-cli
+        if: steps.cache-cutechess.outputs.cache-hit != 'true'
         run: |
           # Install dependencies for building cutechess
           sudo apt-get update
@@ -86,7 +94,9 @@ jobs:
 
           # Make cli available
           sudo cp cutechess-cli /usr/local/bin/
-          cutechess-cli --version
+
+      - name: Verify cutechess-cli
+        run: cutechess-cli --version
 
       - name: Download baseline engine
         uses: actions/download-artifact@v4
