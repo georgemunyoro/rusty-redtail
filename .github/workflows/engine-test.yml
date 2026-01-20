@@ -12,10 +12,14 @@ on:
       time_control:
         description: 'Time control (e.g., 5+0.05)'
         required: false
-        default: '5+0.05'
+        default: '1+0.1'
 
 env:
   CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   build-baseline:
@@ -103,14 +107,15 @@ jobs:
 
       - name: Download opening book
         run: |
-          curl -sL -o openings.epd \
-            "https://raw.githubusercontent.com/official-stockfish/books/master/UHO_XXL_%2B0.90_%2B1.19.epd"
+          # Use Stockfish's 8moves_v3 opening book (reliable source)
+          curl -sL -o openings.pgn \
+            "https://raw.githubusercontent.com/official-stockfish/books/master/8moves_v3.pgn"
 
       - name: Run engine match (SPRT)
         id: match
         run: |
           GAMES=${{ github.event.inputs.games || '250' }}
-          TC=${{ github.event.inputs.time_control || '5+0.05' }}
+          TC=${{ github.event.inputs.time_control || '1+0.1' }}
 
           echo "Running $GAMES game pairs with TC=$TC"
 
@@ -122,7 +127,7 @@ jobs:
             -games 2 \
             -repeat \
             -sprt elo0=0 elo1=10 alpha=0.05 beta=0.05 \
-            -openings file=openings.epd format=epd order=random \
+            -openings file=openings.pgn format=pgn order=random plies=16 \
             -concurrency 2 \
             -ratinginterval 10 \
             -pgnout games.pgn \
@@ -177,7 +182,7 @@ jobs:
             <summary>Test Parameters</summary>
 
             - Games: ${{ github.event.inputs.games || '250' }} pairs
-            - Time Control: ${{ github.event.inputs.time_control || '5+0.05' }}
+            - Time Control: ${{ github.event.inputs.time_control || '1+0.1' }}
             - SPRT bounds: elo0=0, elo1=10, alpha=0.05, beta=0.05
 
             </details>
