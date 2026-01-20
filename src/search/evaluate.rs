@@ -31,6 +31,56 @@ pub struct PositionEvaluation {
     pub cutoffs: Cutoffs,
 }
 
+/// Triangular PV table for storing principal variation during search
+pub struct PVTable {
+    /// pv_table[ply] contains the PV starting from that ply
+    table: [[BitPackedMove; MAX_PLY]; MAX_PLY],
+    /// Length of PV at each ply
+    length: [usize; MAX_PLY],
+}
+
+impl PVTable {
+    pub fn new() -> Self {
+        PVTable {
+            table: [[BitPackedMove::default(); MAX_PLY]; MAX_PLY],
+            length: [0; MAX_PLY],
+        }
+    }
+
+    /// Clear the PV length at the given ply (called at start of node)
+    pub fn clear_at(&mut self, ply: usize) {
+        if ply < MAX_PLY {
+            self.length[ply] = 0;
+        }
+    }
+
+    /// Update PV when a new best move is found
+    /// Copies the PV from ply+1 and prepends the current move
+    pub fn update(&mut self, ply: usize, m: BitPackedMove) {
+        if ply >= MAX_PLY {
+            return;
+        }
+        self.table[ply][0] = m;
+        if ply + 1 < MAX_PLY {
+            let child_len = self.length[ply + 1];
+            for i in 0..child_len {
+                if i + 1 < MAX_PLY {
+                    self.table[ply][i + 1] = self.table[ply + 1][i];
+                }
+            }
+            self.length[ply] = child_len + 1;
+        } else {
+            self.length[ply] = 1;
+        }
+    }
+
+    /// Get the PV from ply 0 as a vector of moves
+    pub fn get_pv(&self) -> Vec<BitPackedMove> {
+        let len = self.length[0];
+        self.table[0][..len].to_vec()
+    }
+}
+
 pub struct Evaluator {
     pub running: bool,
     pub result: PositionEvaluation,
@@ -41,6 +91,7 @@ pub struct Evaluator {
     pub repetition_table: Vec<u64>,
     counter_move_table: [[BitPackedMove; 64]; 64],
     stop_flag: Option<Arc<AtomicBool>>,
+    pv_table: PVTable,
 }
 
 impl Evaluator {
@@ -62,6 +113,7 @@ impl Evaluator {
             repetition_table: Vec::with_capacity(150),
             counter_move_table: [[BitPackedMove::default(); 64]; 64],
             stop_flag: None,
+            pv_table: PVTable::new(),
         }
     }
 
@@ -146,8 +198,9 @@ impl Evaluator {
         let mut alpha = -50000;
         let mut beta = 50000;
         let mut current_depth = 1;
-        let mut pv_line_completed_so_far = Vec::new();
+        let mut pv_completed_so_far: Vec<BitPackedMove> = Vec::new();
         self.repetition_table.clear();
+        self.pv_table = PVTable::new();
 
         // Get a fallback move in case search doesn't complete
         let legal_moves = position.generate_moves(false);
@@ -180,21 +233,22 @@ impl Evaluator {
             alpha = score - 50;
             beta = score + 50;
 
-            let pv_line_found = tt.get_pv_line(position);
-            if pv_line_found.len() > 0 {
-                pv_line_completed_so_far = pv_line_found;
+            // Save PV from this completed iteration
+            let pv = self.pv_table.get_pv();
+            if !pv.is_empty() {
+                pv_completed_so_far = pv;
             }
 
             if !self.running {
                 break;
             }
 
-            self.print_info(position, start_time, tt);
+            self.print_info(start_time, score, &pv_completed_so_far, tt);
             current_depth += 1;
         }
 
-        let best_move = if pv_line_completed_so_far.len() > 0 {
-            pv_line_completed_so_far[0].get_move()
+        let best_move = if !pv_completed_so_far.is_empty() {
+            pv_completed_so_far[0]
         } else {
             fallback_move
         };
@@ -284,6 +338,9 @@ impl Evaluator {
         let mut queue = self.order_moves_p(position.generate_moves(false), position, last_move, tt);
         let mut found_pv = false;
         let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
+
+        // Clear PV at this ply
+        self.pv_table.clear_at(self.result.ply as usize);
 
         while let Some(pm) = queue.pop() {
             let is_legal_move = position.make_move(pm.m, false);
@@ -386,6 +443,9 @@ impl Evaluator {
                 found_pv = true;
                 alpha = _score;
 
+                // Update PV table
+                self.pv_table.update(self.result.ply as usize, pm.m);
+
                 if self.result.ply == 0 {
                     self.result.depth = depth;
                     self.result.score = _score;
@@ -465,15 +525,12 @@ impl Evaluator {
         alpha
     }
 
-    pub fn print_info(&self, position: &mut Position, start_time: u128, tt: &mut TranspositionTable) {
+    pub fn print_info(&self, start_time: u128, score: i32, pv_line: &[BitPackedMove], tt: &TranspositionTable) {
         let stop_time: u128 = Evaluator::_get_time_ms();
         let nps: i32 =
             (self.result.nodes as f64 / ((stop_time - start_time) as f64 / 1000.0)) as i32;
-        let pv_line_found: Vec<tt::TranspositionTableEntry> = tt.get_pv_line(position);
 
-        let score = pv_line_found[0].get_value();
-
-        if pv_line_found.len() > 0 {
+        if !pv_line.is_empty() {
             let is_mate = score > 48000;
             let mut mate_in: i32 = 0;
 
@@ -499,12 +556,12 @@ impl Evaluator {
 
             let mut pv_str: String = String::new();
 
-            for i in pv_line_found {
+            for m in pv_line {
                 pv_str.push_str(" ");
-                pv_str.push_str(i.get_move().to_string().as_str());
+                pv_str.push_str(m.to_string().as_str());
             }
 
-            println!(" info pv{}", pv_str);
+            println!(" pv{}", pv_str);
         }
     }
 
