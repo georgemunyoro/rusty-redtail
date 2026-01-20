@@ -105,11 +105,27 @@ jobs:
           chmod +x engines/baseline/redtail
           chmod +x engines/new/redtail
 
-      - name: Download opening book
+      - name: Create opening book
         run: |
-          # Use Stockfish's 8moves_v3 opening book (reliable source)
-          curl -sL -o openings.pgn \
-            "https://raw.githubusercontent.com/official-stockfish/books/master/8moves_v3.pgn"
+          # Create a simple EPD opening book with common chess openings
+          cat > openings.epd << 'EOF'
+          rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1
+          rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1
+          rnbqkbnr/pppppppp/8/8/2P5/8/PP1PPPPP/RNBQKBNR b KQkq c3 0 1
+          rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2
+          rnbqkbnr/pppp1ppp/8/4p3/3P4/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 2
+          rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2
+          rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq d6 0 2
+          rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2
+          rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2
+          rnbqkb1r/pppppppp/5n2/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2
+          r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3
+          rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq d6 0 3
+          rnbqkbnr/pppp1ppp/4p3/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2
+          rnbqkb1r/pppp1ppp/4pn2/8/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 1 3
+          rnbqkbnr/pp2pppp/2p5/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq d6 0 3
+          rnbqkb1r/pppppp1p/5np1/8/2P5/2N5/PP1PPPPP/R1BQKBNR w KQkq - 1 3
+          EOF
 
       - name: Run engine match (SPRT)
         id: match
@@ -127,7 +143,7 @@ jobs:
             -games 2 \
             -repeat \
             -sprt elo0=0 elo1=10 alpha=0.05 beta=0.05 \
-            -openings file=openings.pgn format=pgn order=random plies=16 \
+            -openings file=openings.epd format=epd order=random \
             -concurrency 2 \
             -ratinginterval 10 \
             -pgnout games.pgn \
