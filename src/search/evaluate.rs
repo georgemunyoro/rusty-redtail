@@ -681,7 +681,7 @@ impl Evaluator {
             + self.evaluate_king_safety(position);
     }
 
-    fn evaluate_pawn_structure(&mut self, position: &mut Position) -> i32 {
+    pub fn evaluate_pawn_structure(&mut self, position: &mut Position) -> i32 {
         let mut white_score = 0;
         let mut black_score = 0;
 
@@ -744,7 +744,7 @@ impl Evaluator {
         };
     }
 
-    fn evaluate_open_files(&mut self, position: &mut Position) -> i32 {
+    pub fn evaluate_open_files(&mut self, position: &mut Position) -> i32 {
         let mut white_score = 0;
         let mut black_score = 0;
 
@@ -799,36 +799,31 @@ impl Evaluator {
         };
     }
 
-    fn evaluate_king_safety(&mut self, position: &mut Position) -> i32 {
-        // white king safety
-        let white_king_position = utils::get_lsb(position.bitboards[Piece::WhiteKing as usize]);
-        let white_score = if white_king_position < 64 {
-            utils::count_bits(
-                position.king_attacks[white_king_position as usize]
-                    & position.bitboards[Piece::WhitePawn as usize],
-            ) as i32
-                * 6
+    pub fn evaluate_king_safety(&mut self, position: &mut Position) -> i32 {
+        let white_kings = position.bitboards[Piece::WhiteKing as usize];
+        let black_kings = position.bitboards[Piece::BlackKing as usize];
+        let white_pawns = position.bitboards[Piece::WhitePawn as usize];
+        let black_pawns = position.bitboards[Piece::BlackPawn as usize];
+
+        // Use trailing_zeros and count_ones directly (hardware popcnt)
+        let white_score = if white_kings != 0 {
+            let king_sq = white_kings.trailing_zeros() as usize;
+            (position.king_attacks[king_sq] & white_pawns).count_ones() as i32 * 6
         } else {
             0
         };
 
-        // black king safety
-        let black_king_position = utils::get_lsb(position.bitboards[Piece::BlackKing as usize]);
-        let black_score = if black_king_position < 64 {
-            utils::count_bits(
-                position.king_attacks[black_king_position as usize]
-                    & position.bitboards[Piece::BlackPawn as usize],
-            ) as i32
-                * 6
+        let black_score = if black_kings != 0 {
+            let king_sq = black_kings.trailing_zeros() as usize;
+            (position.king_attacks[king_sq] & black_pawns).count_ones() as i32 * 6
         } else {
             0
         };
 
-        if position.turn == Color::White {
-            white_score - black_score
-        } else {
-            black_score - white_score
-        }
+        // Branchless final calculation
+        let diff = white_score - black_score;
+        let multiplier = 1 - 2 * (position.turn as i32);
+        diff * -multiplier
     }
 }
 
