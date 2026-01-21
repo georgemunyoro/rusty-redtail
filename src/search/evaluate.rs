@@ -224,7 +224,9 @@ impl Evaluator {
 
             let score = self.negamax(position, alpha, beta, current_depth, false, None, tt);
 
-            if score <= alpha || score >= beta {
+            // If score falls outside aspiration window and we haven't already widened it
+            if (score <= alpha || score >= beta) && !(alpha == -50000 && beta == 50000) {
+                // Widen the window and re-search at same depth
                 alpha = -50000;
                 beta = 50000;
                 continue;
@@ -253,8 +255,19 @@ impl Evaluator {
             fallback_move
         };
 
-        println!("bestmove {}", best_move);
-        Some(best_move)
+        // Verify the best move is legal before outputting
+        let final_move = if position.make_move(best_move, false) {
+            position.unmake_move();
+            best_move
+        } else {
+            // If best move is illegal, fall back to first legal move
+            fallback_move
+        };
+
+        println!("bestmove {}", final_move);
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+        Some(final_move)
     }
 
     pub fn negamax(
@@ -562,6 +575,8 @@ impl Evaluator {
             }
 
             println!(" pv{}", pv_str);
+            use std::io::Write;
+            std::io::stdout().flush().unwrap();
         }
     }
 

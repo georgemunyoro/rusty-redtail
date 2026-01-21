@@ -1,5 +1,5 @@
 use std::{
-    io::{self, BufRead},
+    io::{self, BufRead, Write},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc,
@@ -79,15 +79,20 @@ impl UCI {
                     println!("id name redtail_vx");
                     println!("id author George T.G. Munyoro");
                     println!("option name Hash type spin default 1 min 1 max 1");
-                    println!("option name Threads type spin default 1 min 1 max 1");
                     println!("uciok");
+                    io::stdout().flush().unwrap();
                 }
 
-                "isready" => println!("readyok"),
+                "isready" => {
+                    println!("readyok");
+                    io::stdout().flush().unwrap();
+                }
 
-                "ucinewgame" => self
-                    .position
-                    .set_fen(String::from(chess::constants::STARTING_FEN)),
+                "ucinewgame" => {
+                    self.position
+                        .set_fen(String::from(chess::constants::STARTING_FEN));
+                    self.transposition_table.clear();
+                }
 
                 "position" => self.handle_position(tokens),
 
