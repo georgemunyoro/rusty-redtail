@@ -66,6 +66,7 @@ pub struct Position {
 
 pub struct HistoryEntry {
     pub bitboards: [u64; 12],
+    pub mailbox: [Piece; 64],
     pub turn: Color,
     pub enpassant: Option<Square>,
     pub castling: CastlingRights,
@@ -437,6 +438,10 @@ impl Board for Position {
             game_phase_score,
         );
 
+        // update mailbox for the basic move
+        self.mailbox[m.get_from() as usize] = Piece::Empty;
+        self.mailbox[m.get_to() as usize] = m.get_piece();
+
         // handle captures
         if m.is_capture() {
             let captured_piece = m.get_capture();
@@ -478,6 +483,9 @@ impl Board for Position {
                 game_phase_score,
             );
             self.hash ^= self.zobrist_piece_keys[m.get_promotion() as usize][m.get_to() as usize];
+
+            // update mailbox for promotion
+            self.mailbox[m.get_to() as usize] = m.get_promotion();
         }
 
         if let Some(enpassant_square) = self.enpassant {
@@ -491,17 +499,23 @@ impl Board for Position {
             if get_bit(self.occupancies[2], en_captured_square) != 0 {
                 let en_captured_piece = self.get_piece_at_square(en_captured_square);
 
-                // remove the captured pawn
-                utils::clear_bit(
-                    &mut self.bitboards[en_captured_piece as usize],
-                    en_captured_square,
-                );
+                // Guard against empty square (index 12)
+                if (en_captured_piece as usize) < 12 {
+                    // remove the captured pawn
+                    utils::clear_bit(
+                        &mut self.bitboards[en_captured_piece as usize],
+                        en_captured_square,
+                    );
 
-                self.material[!self.turn as usize] -= _get_piece_value_bl(
-                    en_captured_piece as usize,
-                    en_captured_square as usize,
-                    game_phase_score,
-                );
+                    self.material[!self.turn as usize] -= _get_piece_value_bl(
+                        en_captured_piece as usize,
+                        en_captured_square as usize,
+                        game_phase_score,
+                    );
+
+                    // update mailbox for en passant capture
+                    self.mailbox[en_captured_square as usize] = Piece::Empty;
+                }
             }
         }
 
@@ -544,6 +558,10 @@ impl Board for Position {
                     );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::D1 as usize];
+
+                    // update mailbox for rook
+                    self.mailbox[Square::A1 as usize] = Piece::Empty;
+                    self.mailbox[Square::D1 as usize] = Piece::WhiteRook;
                 }
                 Square::G1 => {
                     // white king side
@@ -570,6 +588,10 @@ impl Board for Position {
                     );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::WhiteRook as usize][Square::F1 as usize];
+
+                    // update mailbox for rook
+                    self.mailbox[Square::H1 as usize] = Piece::Empty;
+                    self.mailbox[Square::F1 as usize] = Piece::WhiteRook;
                 }
                 Square::C8 => {
                     // black queen side
@@ -596,6 +618,10 @@ impl Board for Position {
                     );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::BlackRook as usize][Square::D8 as usize];
+
+                    // update mailbox for rook
+                    self.mailbox[Square::A8 as usize] = Piece::Empty;
+                    self.mailbox[Square::D8 as usize] = Piece::BlackRook;
                 }
                 Square::G8 => {
                     // black king side
@@ -622,6 +648,10 @@ impl Board for Position {
                     );
                     self.hash ^=
                         self.zobrist_piece_keys[Piece::BlackRook as usize][Square::F8 as usize];
+
+                    // update mailbox for rook
+                    self.mailbox[Square::H8 as usize] = Piece::Empty;
+                    self.mailbox[Square::F8 as usize] = Piece::BlackRook;
                 }
                 _ => {}
             }
@@ -923,6 +953,7 @@ impl Position {
     pub fn to_history_entry(&self) -> HistoryEntry {
         return HistoryEntry {
             bitboards: self.bitboards,
+            mailbox: self.mailbox,
             turn: self.turn,
             enpassant: self.enpassant,
             castling: self.castling,
@@ -956,6 +987,7 @@ impl Position {
 
     pub fn apply_history_entry(&mut self, entry: HistoryEntry) {
         self.bitboards = entry.bitboards;
+        self.mailbox = entry.mailbox;
         self.turn = entry.turn;
         self.enpassant = entry.enpassant;
         self.castling = entry.castling;

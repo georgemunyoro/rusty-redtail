@@ -19,6 +19,14 @@ criterion = "0.5"
 name = "movegen"
 harness = false
 
+[[bench]]
+name = "evaluate"
+harness = false
+
+[[bench]]
+name = "cutoff"
+harness = false
+
 [profile.release]
 codegen-units = 1
 panic = "abort"

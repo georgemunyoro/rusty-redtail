@@ -41,6 +41,13 @@ impl TranspositionTable {
         self.age += 1;
     }
 
+    /// Clears the transposition table
+    pub fn clear(&mut self) {
+        self.table.fill(TranspositionTableEntry::new());
+        self.size = 0;
+        self.age = 0;
+    }
+
     /// Stores a new entry in the transposition table. If the entry already exists, it is overwritten.
     pub fn save(
         &mut self,

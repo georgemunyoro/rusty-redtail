@@ -10,13 +10,7 @@ pub fn set_bit(bitboard: &mut u64, bit_index: u8) {
 
 #[inline(always)]
 pub fn count_bits(bitboard: u64) -> u64 {
-    let mut count = 0;
-    let mut temp_bitboard = bitboard;
-    while temp_bitboard != 0 {
-        temp_bitboard &= temp_bitboard - 1;
-        count += 1;
-    }
-    return count;
+    bitboard.count_ones() as u64
 }
 
 #[inline(always)]
