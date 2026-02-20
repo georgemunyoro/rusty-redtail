@@ -92,6 +92,7 @@ pub struct Evaluator {
     counter_move_table: [[BitPackedMove; 64]; 64],
     stop_flag: Option<Arc<AtomicBool>>,
     pv_table: PVTable,
+    silent: bool,
 }
 
 impl Evaluator {
@@ -114,7 +115,12 @@ impl Evaluator {
             counter_move_table: [[BitPackedMove::default(); 64]; 64],
             stop_flag: None,
             pv_table: PVTable::new(),
+            silent: false,
         }
+    }
+
+    pub fn set_silent(&mut self, silent: bool) {
+        self.silent = silent;
     }
 
     fn is_stopped(&self) -> bool {
@@ -264,9 +270,11 @@ impl Evaluator {
             fallback_move
         };
 
-        println!("bestmove {}", final_move);
-        use std::io::Write;
-        std::io::stdout().flush().unwrap();
+        if !self.silent {
+            println!("bestmove {}", final_move);
+            use std::io::Write;
+            std::io::stdout().flush().unwrap();
+        }
         Some(final_move)
     }
 
@@ -431,21 +439,15 @@ impl Evaluator {
 
                 self.counter_move_table[pm.m.get_from() as usize][pm.m.get_to() as usize] = pm.m;
 
-                // ==============
-                // cutof testing
-                // ==============
-
-                // if legal_moves_searched == 1 {
-                //     self.result.cutoffs.move_1 += 1;
-                // }
-                // if legal_moves_searched == 2 {
-                //     self.result.cutoffs.move_2 += 1;
-                // }
-                // self.result.cutoffs.avg_cutoff_move_no += legal_moves_searched as f32;
-                // self.result.cutoffs.total += 1;
-
-                // ==============
-                // ==============
+                // Cutoff tracking
+                if legal_moves_searched == 1 {
+                    self.result.cutoffs.move_1 += 1;
+                }
+                if legal_moves_searched == 2 {
+                    self.result.cutoffs.move_2 += 1;
+                }
+                self.result.cutoffs.avg_cutoff_move_no += legal_moves_searched as f32;
+                self.result.cutoffs.total += 1;
 
                 return beta;
             }
@@ -556,27 +558,29 @@ impl Evaluator {
                 }
             }
 
-            print!(
-                "info score {} {} depth {} nodes {} nps {} time {} hashfull {}",
-                if is_mate { "mate" } else { "cp" },
-                if is_mate { mate_in } else { score },
-                self.result.depth,
-                self.result.nodes,
-                nps,
-                stop_time - start_time,
-                tt.get_hashfull()
-            );
+            if !self.silent {
+                print!(
+                    "info score {} {} depth {} nodes {} nps {} time {} hashfull {}",
+                    if is_mate { "mate" } else { "cp" },
+                    if is_mate { mate_in } else { score },
+                    self.result.depth,
+                    self.result.nodes,
+                    nps,
+                    stop_time - start_time,
+                    tt.get_hashfull()
+                );
 
-            let mut pv_str: String = String::new();
+                let mut pv_str: String = String::new();
 
-            for m in pv_line {
-                pv_str.push_str(" ");
-                pv_str.push_str(m.to_string().as_str());
+                for m in pv_line {
+                    pv_str.push_str(" ");
+                    pv_str.push_str(m.to_string().as_str());
+                }
+
+                println!(" pv{}", pv_str);
+                use std::io::Write;
+                std::io::stdout().flush().unwrap();
             }
-
-            println!(" pv{}", pv_str);
-            use std::io::Write;
-            std::io::stdout().flush().unwrap();
         }
     }
 
