@@ -241,14 +241,14 @@ impl Evaluator {
             alpha = score - 50;
             beta = score + 50;
 
-            // Save PV from this completed iteration
+            if !self.running {
+                break;
+            }
+
+            // Save PV only from fully completed iterations
             let pv = self.pv_table.get_pv();
             if !pv.is_empty() {
                 pv_completed_so_far = pv;
-            }
-
-            if !self.running {
-                break;
             }
 
             self.print_info(start_time, score, &pv_completed_so_far, tt);
