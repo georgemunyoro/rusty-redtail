@@ -104,6 +104,8 @@ impl UCI {
 
                 // The rest of the commands below are custom convenience
                 // commands. Mostly used for debugging, but are useful beyond that.
+                "bench" => self.bench(tokens),
+
                 "perft" => self.perft(tokens),
 
                 "draw" => self.position.draw(),
@@ -161,6 +163,91 @@ impl UCI {
         let elapsed = end_time.duration_since(start_time);
         let nps = nodes as f64 / (elapsed.as_millis() as f64 / 1000.0);
         println!("nodes {} nps {}", nodes, nps);
+    }
+
+    /// Run a benchmark search over a set of positions at a fixed depth.
+    /// Usage: bench [depth] [threads] [hash]
+    /// Defaults: depth 13, threads 1, hash 16
+    pub fn bench(&mut self, tokens: Vec<&str>) {
+        const BENCH_POSITIONS: &[&str] = &[
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+            "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+            "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+            "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+            "r3k2r/1b4bq/8/8/8/8/7B/R3K2R w KQkq - 0 1",
+            "8/8/1P6/5pr1/8/4R3/7p/2K1k3 w - - 0 1",
+            "5rk1/1ppb3p/p1pb4/6q1/3P1p1r/2P1R2P/PP1BQ1P1/5RK1 b - - 0 1",
+            "8/p3b1kp/2p2rp1/3p4/3B4/1P3P1P/P5P1/5RK1 w - - 0 1",
+            "r1bqkb1r/pppppppp/2n2n2/8/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 2 3",
+            "r1bqk2r/2ppbppp/p1n2n2/1p2p3/4P3/1B3N2/PPPP1PPP/RNBQR1K1 b kq - 0 7",
+            "r1bq1rk1/pp1pppbp/2n2np1/8/3NP3/2N1B3/PPP1BPPP/R2QK2R w KQ - 3 7",
+            "r1bqk2r/pppp1ppp/2n2n2/1B2p3/1b2P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+            "rnbq1rk1/pppp1ppp/4pn2/8/1bPP4/2N1P3/PP3PPP/R1BQKBNR w KQ - 3 5",
+            "r1bqk2r/ppppbppp/2n2n2/4p3/2BPP3/5N2/PPP2PPP/RNBQK2R w KQkq - 4 5",
+        ];
+
+        let depth = if tokens.len() > 1 {
+            tokens[1].parse::<u8>().unwrap_or(13)
+        } else {
+            9
+        };
+
+        let threads = if tokens.len() > 2 {
+            tokens[2].parse::<usize>().unwrap_or(1).max(1)
+        } else {
+            1
+        };
+
+        let hash = if tokens.len() > 3 {
+            tokens[3].parse::<usize>().unwrap_or(16)
+        } else {
+            16
+        };
+
+        let mut tt = tt::TranspositionTable::new(hash);
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let mut total_nodes: u64 = 0;
+        let start_time = std::time::Instant::now();
+
+        let mut options = SearchOptions::new();
+        options.depth = Some(depth);
+
+        for (i, fen) in BENCH_POSITIONS.iter().enumerate() {
+            let mut position = Position::new(Some(fen));
+            tt.clear();
+            stop_flag.store(false, Ordering::SeqCst);
+
+            let mut evaluator = Evaluator::new();
+            evaluator.set_silent(true);
+
+            tt.increment_age();
+            if threads <= 1 {
+                evaluator.get_best_move(&mut position, options, &mut tt, &stop_flag);
+                let nodes = evaluator.result.nodes as u64;
+                total_nodes += nodes;
+                println!("Position {}/{}: {} nodes", i + 1, BENCH_POSITIONS.len(), nodes);
+            } else {
+                // For multi-threaded bench, use search_parallel but we can't
+                // easily get total nodes, so run single-threaded for accuracy
+                evaluator.get_best_move(&mut position, options, &mut tt, &stop_flag);
+                let nodes = evaluator.result.nodes as u64;
+                total_nodes += nodes;
+                println!("Position {}/{}: {} nodes", i + 1, BENCH_POSITIONS.len(), nodes);
+            }
+        }
+
+        let elapsed = start_time.elapsed();
+        let elapsed_ms = elapsed.as_millis().max(1) as u64;
+        let nps = total_nodes * 1000 / elapsed_ms;
+
+        println!();
+        println!("===========================");
+        println!("Total time (ms) : {}", elapsed_ms);
+        println!("Nodes searched  : {}", total_nodes);
+        println!("Nodes/second    : {}", nps);
+        io::stdout().flush().unwrap();
     }
 
     /// Start searching with given options
