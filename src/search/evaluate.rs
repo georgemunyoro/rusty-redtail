@@ -158,15 +158,25 @@ impl Evaluator {
         }
     }
 
-    /// Computes optimum (soft) and maximum (hard) time limits for a move,
-    /// using a Stockfish-inspired algorithm.
+    /// Computes optimum (soft) and maximum (hard) time limits for a move.
+    ///
+    /// optimum_time: soft limit — don't start a new iteration past this.
+    /// maximum_time: hard limit — abort the search immediately past this.
     fn set_move_time(&mut self, turn: Color) {
         if self.options.movetime.is_some() {
-            self.optimum_time = self.options.movetime.unwrap();
-            self.maximum_time = self.options.movetime.unwrap();
+            let mt = self.options.movetime.unwrap();
+            self.optimum_time = mt;
+            self.maximum_time = mt;
             return;
         }
         if self.options.infinite || self.options.ponder {
+            self.optimum_time = u32::MAX;
+            self.maximum_time = u32::MAX;
+            return;
+        }
+
+        // No time control specified at all — treat as infinite
+        if self.options.wtime.is_none() && self.options.btime.is_none() {
             self.optimum_time = u32::MAX;
             self.maximum_time = u32::MAX;
             return;
@@ -183,12 +193,46 @@ impl Evaluator {
             self.options.binc.unwrap_or(0)
         };
 
-        let moves = self.options.movestogo.unwrap_or(25).max(1);
-        let base = time_left / moves + increment / 2;
-        let hard_cap = time_left / 3;
+        // Safety margin for UCI communication overhead
+        let overhead: u32 = 50;
+        let available = time_left.saturating_sub(overhead).max(1);
 
-        self.optimum_time = base.min(hard_cap).max(1);
-        self.maximum_time = (base * 3).min(hard_cap).max(1);
+        if let Some(mtg_raw) = self.options.movestogo {
+            // Known moves-to-go (e.g., 40/2 tournament time control).
+            // Time is replenished, so we can be more aggressive.
+            let mtg = mtg_raw.max(1);
+            let base = available / mtg + increment;
+            self.optimum_time = base.min(available * 4 / 5).max(1);
+            self.maximum_time = (self.optimum_time * 2).min(available * 9 / 10).max(1);
+        } else if increment > 0 {
+            // Sudden death with increment (Fischer).
+            // We gain `increment` per move, but must stay conservative.
+            let base = available / 30 + increment * 2 / 3;
+            self.optimum_time = base.min(available / 6).max(1);
+            self.maximum_time = (self.optimum_time * 3 / 2)
+                .min(available / 4)
+                .max(self.optimum_time);
+        } else {
+            // Sudden death without increment (e.g. 30+0): very conservative.
+            // Each second spent is gone forever — tight limits are critical.
+            // Note: maximum_time is the EFFECTIVE average since the engine often
+            // runs to the hard limit after starting a deep iteration.
+            self.optimum_time = (available / 40).max(1);
+            self.maximum_time = (self.optimum_time * 3 / 2)
+                .min(available / 15)
+                .max(self.optimum_time);
+        }
+
+        // Time pressure: when low on time, further reduce allocations
+        // to avoid flagging in the endgame.
+        if available < 5000 {
+            self.optimum_time = (self.optimum_time * 3 / 4).max(1);
+            self.maximum_time = (self.maximum_time * 3 / 4).max(self.optimum_time);
+        }
+        if available < 1000 {
+            self.optimum_time = (self.optimum_time / 2).max(1);
+            self.maximum_time = (self.maximum_time / 2).max(self.optimum_time);
+        }
     }
 
     pub fn get_best_move(
@@ -274,8 +318,9 @@ impl Evaluator {
             current_depth += 1;
 
             // Soft time check: don't start the next iteration if we've used
-            // more than half the optimum time — it's unlikely to complete.
-            if self.elapsed_ms() > self.optimum_time / 2 {
+            // more than a third of the optimum time — the next iteration takes
+            // ~3x as long, so starting late would push us to the hard limit.
+            if self.elapsed_ms() > self.optimum_time / 3 {
                 break;
             }
         }
@@ -345,6 +390,10 @@ impl Evaluator {
         let mut depth = _depth;
         let mut alpha_move = chess::_move::BitPackedMove::default();
         let is_pv_node = beta - alpha > 1;
+
+        // Clear PV at this ply BEFORE any early returns, so parents
+        // never copy stale PV data from previous iterations.
+        self.pv_table.clear_at(self.result.ply as usize);
 
         // Prevent stack overflow from deep recursion
         if self.result.ply >= MAX_PLY as u32 - 1 {
@@ -476,9 +525,6 @@ impl Evaluator {
         let mut legal_moves_searched: u32 = 0;
         let mut found_pv = false;
         let mut hash_f = tt::TranspositionTableEntryFlag::ALPHA;
-
-        // Clear PV at this ply
-        self.pv_table.clear_at(self.result.ply as usize);
 
         let mut move_idx = 0;
         while move_idx < moves.len() {
