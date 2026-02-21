@@ -3,6 +3,7 @@ pub struct SearchOptions {
     pub depth: Option<u8>,
     pub movetime: Option<u32>,
     pub infinite: bool,
+    pub ponder: bool,
     pub wtime: Option<u32>,
     pub btime: Option<u32>,
     pub winc: Option<u32>,
@@ -17,6 +18,7 @@ impl SearchOptions {
             // movetime: Some(3000),
             movetime: None,
             infinite: false,
+            ponder: false,
             wtime: None,
             btime: None,
             winc: None,
@@ -33,6 +35,7 @@ impl From<Vec<&str>> for SearchOptions {
         for i in 1..tokens.len() {
             match tokens[i] {
                 "infinite" => options.infinite = true,
+                "ponder" => options.ponder = true,
                 "depth" | "binc" | "winc" | "btime" | "wtime" | "movestogo" | "movetime" => {
                     let value = Some(tokens[i + 1].parse::<u32>().unwrap());
                     match tokens[i] {

@@ -3,7 +3,7 @@ pub const GET_RANK: [u8; 64] = [
     3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
-pub static _MVV_LVA: [[u32; 12]; 12] = [
+pub static _MVV_LVA: [[i32; 12]; 12] = [
     [105, 205, 305, 405, 505, 605, 105, 205, 305, 405, 505, 605],
     [104, 204, 304, 404, 504, 604, 104, 204, 304, 404, 504, 604],
     [103, 203, 303, 403, 503, 603, 103, 203, 303, 403, 503, 603],
@@ -31,3 +31,26 @@ pub const SEMI_OPEN_FILE_SCORE: i32 = 10;
 pub const OPEN_FILE_SCORE: i32 = 20;
 
 pub const FUTILITY_MARGIN: i32 = 200;
+
+/// Reverse futility pruning margin per depth (depth * RFP_MARGIN)
+pub const RFP_MARGIN: i32 = 80;
+
+/// Razoring margin: if static_eval + RAZOR_MARGIN < alpha at low depth, drop to qsearch
+pub const RAZOR_MARGIN: i32 = 300;
+
+/// Delta pruning margin for quiescence search
+pub const DELTA_MARGIN: i32 = 200;
+
+/// Late move pruning thresholds by depth (index = depth)
+/// At depth d, prune quiet moves after LMP_MOVE_COUNTS[d] moves searched
+pub const LMP_MOVE_COUNTS: [usize; 8] = [0, 5, 8, 12, 17, 23, 30, 38];
+
+/// SEE piece values (indexed by Piece enum: P=0,N=1,B=2,R=3,Q=4,K=5,p=6..k=11,Empty=12)
+pub const SEE_PIECE_VALUES: [i32; 13] = [
+    100, 300, 300, 500, 900, 20000,
+    100, 300, 300, 500, 900, 20000,
+    0,
+];
+
+/// Bishop pair bonus (per side)
+pub const BISHOP_PAIR_BONUS: i32 = 30;
