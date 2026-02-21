@@ -8,5 +8,6 @@ endif
 
 rule:
 	cargo clean
-	cargo rustc --release -- -C target-cpu=native --emit link=$(NAME)
+	cargo rustc --release --bin redtail -- -C target-cpu=native --emit link=$(NAME)
+
 
