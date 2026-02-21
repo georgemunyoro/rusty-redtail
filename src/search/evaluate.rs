@@ -2,7 +2,7 @@ use std::{
     collections::BinaryHeap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -101,6 +101,10 @@ pub struct Evaluator {
     ponder_flag: Option<Arc<AtomicBool>>,
     /// Side to move at search start, cached for ponderhit time recalc
     search_turn: Color,
+    /// Depth offset for Lazy SMP thread diversity (odd helper threads start at depth+1)
+    depth_offset: u8,
+    /// Whether this is the main search thread (thread 0) — controls UCI output and stop signaling
+    is_main_thread: bool,
 }
 
 impl Evaluator {
@@ -128,6 +132,8 @@ impl Evaluator {
             maximum_time: 0,
             ponder_flag: None,
             search_turn: Color::White,
+            depth_offset: 0,
+            is_main_thread: true,
         }
     }
 
@@ -168,49 +174,19 @@ impl Evaluator {
             self.options.binc.unwrap_or(0)
         };
 
-        let move_overhead: u32 = 30;
+        let moves = self.options.movestogo.unwrap_or(25).max(1);
+        let base = time_left / moves + increment / 2;
+        let hard_cap = time_left / 3;
 
-        if let Some(movestogo) = self.options.movestogo {
-            // Moves-to-go time control: divide remaining time across moves
-            let mtg = movestogo.max(1);
-            let available = time_left.saturating_sub(move_overhead * mtg) + increment * mtg;
-            let optimum = available / mtg;
-            // Allow spending up to 2x-4x optimum on critical moves
-            let max_scale = (2.0 + 0.1 * mtg as f64).min(4.0);
-            let maximum = (optimum as f64 * max_scale) as u32;
-
-            // Never exceed 85% of remaining clock
-            let hard_cap = time_left * 17 / 20;
-            self.optimum_time = optimum.min(hard_cap).max(1);
-            self.maximum_time = maximum.min(hard_cap).max(1);
-        } else {
-            // Sudden death / increment: assume ~40 moves remaining
-            let mtg: u32 = 40;
-            // Effective time pool: current time + future increments - overhead
-            let available = time_left
-                .saturating_sub(move_overhead * mtg)
-                + increment * (mtg - 1);
-            let available = available.max(1);
-
-            // Base optimum: fraction of available time
-            let opt_fraction = 0.04_f64;
-            let optimum = (available as f64 * opt_fraction) as u32;
-
-            // Maximum: allow up to 5x optimum for unstable positions
-            let maximum = optimum * 5;
-
-            // Never exceed 80% of remaining clock
-            let hard_cap = time_left * 4 / 5;
-            self.optimum_time = optimum.max(1).min(hard_cap.max(1));
-            self.maximum_time = maximum.max(1).min(hard_cap.max(1));
-        }
+        self.optimum_time = base.min(hard_cap).max(1);
+        self.maximum_time = (base * 3).min(hard_cap).max(1);
     }
 
     pub fn get_best_move(
         &mut self,
         position: &mut Position,
         options: SearchOptions,
-        tt: &mut TranspositionTable,
+        tt: &TranspositionTable,
         stop_flag: &Arc<AtomicBool>,
         ponder_flag: Option<Arc<AtomicBool>>,
     ) -> (Option<chess::_move::BitPackedMove>, Option<chess::_move::BitPackedMove>) {
@@ -239,7 +215,7 @@ impl Evaluator {
 
         let mut alpha = -50000;
         let mut beta = 50000;
-        let mut current_depth = 1;
+        let mut current_depth = 1 + self.depth_offset;
         let mut pv_completed_so_far: Vec<BitPackedMove> = Vec::new();
         self.repetition_table.clear();
         self.pv_table = PVTable::new();
@@ -254,8 +230,6 @@ impl Evaluator {
                 break;
             }
         }
-
-        tt.increment_age();
 
         loop {
             if current_depth > depth {
@@ -329,6 +303,13 @@ impl Evaluator {
             None
         };
 
+        // Main thread signals helpers to stop
+        if self.is_main_thread {
+            if let Some(ref flag) = self.stop_flag {
+                flag.store(true, Ordering::SeqCst);
+            }
+        }
+
         if !self.silent {
             if let Some(pm) = ponder_move {
                 println!("bestmove {} ponder {}", final_move, pm);
@@ -349,7 +330,7 @@ impl Evaluator {
         _depth: u8,
         was_last_move_null: bool,
         last_move: Option<BitPackedMove>,
-        tt: &mut TranspositionTable,
+        tt: &TranspositionTable,
     ) -> i32 {
         let mut alpha = _alpha;
         let mut depth = _depth; // will be mutable later for search extensions
@@ -548,7 +529,7 @@ impl Evaluator {
         alpha
     }
 
-    fn quiescence(&mut self, position: &mut Position, _alpha: i32, beta: i32, tt: &mut TranspositionTable) -> i32 {
+    fn quiescence(&mut self, position: &mut Position, _alpha: i32, beta: i32, tt: &TranspositionTable) -> i32 {
         let mut alpha = _alpha;
 
         // Prevent stack overflow from deep recursion
@@ -914,6 +895,59 @@ impl Evaluator {
     }
 }
 
+/// Runs a Lazy SMP parallel search with the given number of threads.
+/// All threads share the transposition table; each gets its own Evaluator and Position clone.
+/// Thread 0 is the main thread (prints UCI output, controls timing).
+/// Helper threads search at staggered depths for diversity.
+pub fn search_parallel(
+    position: &Position,
+    options: SearchOptions,
+    tt: &TranspositionTable,
+    stop_flag: &Arc<AtomicBool>,
+    ponder_flag: Option<Arc<AtomicBool>>,
+    num_threads: usize,
+) -> (Option<BitPackedMove>, Option<BitPackedMove>) {
+    tt.increment_age();
+
+    if num_threads <= 1 {
+        let mut evaluator = Evaluator::new();
+        let mut pos = position.clone();
+        return evaluator.get_best_move(&mut pos, options, tt, stop_flag, ponder_flag);
+    }
+
+    let result: Mutex<(Option<BitPackedMove>, Option<BitPackedMove>)> = Mutex::new((None, None));
+
+    std::thread::scope(|s| {
+        for thread_id in 0..num_threads {
+            let stop = Arc::clone(stop_flag);
+            let ponder = ponder_flag.clone();
+            let result_ref = &result;
+
+            s.spawn(move || {
+                let mut evaluator = Evaluator::new();
+                let mut pos = position.clone();
+
+                if thread_id != 0 {
+                    evaluator.set_silent(true);
+                    evaluator.is_main_thread = false;
+                    // Odd helper threads start one depth deeper for search diversity
+                    evaluator.depth_offset = if thread_id % 2 == 1 { 1 } else { 0 };
+                }
+
+                let (best, ponder) = evaluator.get_best_move(
+                    &mut pos, options, tt, &stop, ponder,
+                );
+
+                if thread_id == 0 {
+                    *result_ref.lock().unwrap() = (best, ponder);
+                }
+            });
+        }
+    });
+
+    result.into_inner().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -925,13 +959,14 @@ mod tests {
     fn short_movetime_returns_legal_move() {
         let mut position = Position::new(Some(STARTING_FEN));
         let mut evaluator = Evaluator::new();
-        let mut tt = TranspositionTable::new(32);
+        let tt = TranspositionTable::new(32);
         let stop_flag = Arc::new(AtomicBool::new(false));
 
         let mut options = SearchOptions::new();
         options.movetime = Some(1); // 1ms - very short time
 
-        let (best_move, _ponder_move) = evaluator.get_best_move(&mut position, options, &mut tt, &stop_flag, None);
+        tt.increment_age();
+        let (best_move, _ponder_move) = evaluator.get_best_move(&mut position, options, &tt, &stop_flag, None);
 
         assert!(best_move.is_some());
         let m = best_move.unwrap();

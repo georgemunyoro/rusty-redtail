@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+
 use crate::{
     board::{Board, Position},
     chess,
@@ -10,47 +12,76 @@ use crate::{
    A transposition table is a hash table that stores information about positions that have already been searched.
    This allows the engine to avoid searching the same position multiple times, and can also be used to detect
    repetitions.
+
+   The table is lock-free and thread-safe: each entry uses AtomicU64 for key/data and AtomicU8 for age.
+   Torn reads from concurrent access are detected by the XOR key verification (key == hash ^ data).
 */
+
+/// Internal atomic storage for a single TT slot.
+struct AtomicTTEntry {
+    key: AtomicU64,
+    data: AtomicU64,
+    age: AtomicU8,
+}
+
 pub struct TranspositionTable {
-    /// The actual hash table.
-    table: Vec<TranspositionTableEntry>,
-
-    /// The number of entries in the table.
-    size: u64,
-
-    /// The age of the table. This is used to determine which entries to replace.
-    age: u8,
-
-    /// The size of the table.
+    table: Vec<AtomicTTEntry>,
+    size: AtomicU64,
+    age: AtomicU8,
     pub hash_size: usize,
 }
+
+// Safety: All fields use atomic types or are immutable after construction.
+unsafe impl Sync for TranspositionTable {}
 
 impl TranspositionTable {
     pub fn new(hash_size_in_mb: usize) -> TranspositionTable {
         let hash_size =
             hash_size_in_mb * 1024 * 1024 / std::mem::size_of::<TranspositionTableEntry>();
-        return TranspositionTable {
-            table: vec![TranspositionTableEntry::new(); hash_size],
-            size: 0,
-            age: 0,
+        let mut table = Vec::with_capacity(hash_size);
+        for _ in 0..hash_size {
+            table.push(AtomicTTEntry {
+                key: AtomicU64::new(0),
+                data: AtomicU64::new(0),
+                age: AtomicU8::new(0),
+            });
+        }
+        TranspositionTable {
+            table,
+            size: AtomicU64::new(0),
+            age: AtomicU8::new(0),
             hash_size,
-        };
+        }
     }
 
-    pub fn increment_age(&mut self) {
-        self.age += 1;
+    pub fn increment_age(&self) {
+        self.age.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Clears the transposition table
-    pub fn clear(&mut self) {
-        self.table.fill(TranspositionTableEntry::new());
-        self.size = 0;
-        self.age = 0;
+    pub fn clear(&self) {
+        for entry in self.table.iter() {
+            entry.key.store(0, Ordering::Relaxed);
+            entry.data.store(0, Ordering::Relaxed);
+            entry.age.store(0, Ordering::Relaxed);
+        }
+        self.size.store(0, Ordering::Relaxed);
+        self.age.store(0, Ordering::Relaxed);
+    }
+
+    /// Loads an entry from the table as a plain value type.
+    fn load_entry(&self, index: usize) -> TranspositionTableEntry {
+        let slot = &self.table[index];
+        TranspositionTableEntry {
+            key: slot.key.load(Ordering::Relaxed),
+            data: slot.data.load(Ordering::Relaxed),
+            age: slot.age.load(Ordering::Relaxed),
+        }
     }
 
     /// Stores a new entry in the transposition table. If the entry already exists, it is overwritten.
     pub fn save(
-        &mut self,
+        &self,
         key: u64,
         depth: u8,
         flag: TranspositionTableEntryFlag,
@@ -68,37 +99,34 @@ impl TranspositionTable {
             | ((depth as u64) << 27)
             | ((m.move_bits as u64) << 35);
 
-        let mut replace = false;
+        let existing = self.load_entry(hash_index);
+        let current_age = self.age.load(Ordering::Relaxed);
 
-        if self.table[hash_index].key == 0 {
-            self.size += 1;
-            replace = true;
+        let replace = if existing.key == 0 {
+            self.size.fetch_add(1, Ordering::Relaxed);
+            true
         } else {
-            if self.table[hash_index].age < self.age || self.table[hash_index].get_depth() <= depth
-            {
-                replace = true;
-            }
-        }
+            existing.age < current_age || existing.get_depth() <= depth
+        };
 
         if !replace {
             return;
         }
 
-        self.table[hash_index] = TranspositionTableEntry {
-            key: key ^ data,
-            data,
-            age: self.age,
-        }
+        let slot = &self.table[hash_index];
+        slot.data.store(data, Ordering::Relaxed);
+        slot.key.store(key ^ data, Ordering::Relaxed);
+        slot.age.store(current_age, Ordering::Relaxed);
     }
 
     /// Returns the entry if it exists, otherwise returns None.
     pub fn get(&self, key: u64) -> Option<TranspositionTableEntry> {
-        let entry: TranspositionTableEntry = self.table[key as usize & (self.hash_size - 1)];
+        let entry = self.load_entry(key as usize & (self.hash_size - 1));
         if entry.key == (key ^ entry.data) && entry.get_flag() == TranspositionTableEntryFlag::EXACT
         {
             return Some(entry);
         }
-        return None;
+        None
     }
 
     /// Returns the entry if it exists and is suitable for the given lower and upper bound, otherwise returns None.
@@ -109,7 +137,7 @@ impl TranspositionTable {
         alpha: i32,
         beta: i32,
     ) -> TranspositionTableEntry {
-        let entry: TranspositionTableEntry = self.table[key as usize & (self.hash_size - 1)];
+        let entry = self.load_entry(key as usize & (self.hash_size - 1));
 
         if entry.key == (key ^ entry.data) {
             if entry.get_depth() >= depth {
@@ -129,22 +157,20 @@ impl TranspositionTable {
             }
         }
 
-        return TranspositionTableEntry::new();
+        TranspositionTableEntry::new()
     }
 
     /// Returns how full the table is, as a number between 0 and 1000.
     pub fn get_hashfull(&self) -> u32 {
-        return (self.size as f32 / self.hash_size as f32 * 1000.0) as u32;
+        (self.size.load(Ordering::Relaxed) as f32 / self.hash_size as f32 * 1000.0) as u32
     }
 
     /// Returns the principal variation line for the given position.
     pub fn get_pv_line(&self, position: &mut Position) -> Vec<TranspositionTableEntry> {
         let mut pv_line: Vec<TranspositionTableEntry> = Vec::new();
-        let mut positions_encountered: Vec<u64> = Vec::new();
 
         loop {
-            let entry: TranspositionTableEntry =
-                self.table[position.hash as usize & (self.hash_size - 1)];
+            let entry = self.load_entry(position.hash as usize & (self.hash_size - 1));
 
             if entry.key != (position.hash ^ entry.data)
                 || entry.get_move() == chess::_move::BitPackedMove::default()
@@ -153,7 +179,6 @@ impl TranspositionTable {
                 break;
             }
 
-            positions_encountered.push(position.hash);
             pv_line.push(entry);
             position.make_move(entry.get_move(), false);
 
@@ -166,7 +191,7 @@ impl TranspositionTable {
             position.unmake_move();
         }
 
-        return pv_line;
+        pv_line
     }
 }
 
@@ -177,67 +202,45 @@ pub struct TranspositionTableEntry {
     pub age: u8,
 }
 
-/*
-   TranspositionTableEntry
-   -----------------------
-   A transposition table entry is a single entry in the transposition table. It contains the following information:
-   - The key, which is the hash of the position XORed with the data.
-   - The data, which contains the following information:
-     - The score, which is the evaluation of the position.
-     - The flag, which is the type of score (exact, alpha, beta, or null).
-     - The depth, which is the depth of the search that produced the score.
-     - The move, which is the move that produced the score.
-   - The age, which is used to determine which entries to replace.
-
-   When retrieving an entry from the transposition table, the key is XORed with the data to ensure that the entry
-    is valid.
-*/
 impl TranspositionTableEntry {
     pub fn new() -> TranspositionTableEntry {
-        return TranspositionTableEntry {
+        TranspositionTableEntry {
             key: 0,
             data: 0,
             age: 0,
-        };
+        }
     }
 }
 
 impl TranspositionTableEntry {
     /// Returns the depth of the search that produced the score.
     pub fn get_depth(&self) -> u8 {
-        return (self.data >> 27) as u8 & 0xF;
+        (self.data >> 27) as u8 & 0xF
     }
 
     /// Returns the type of score (exact, alpha, beta, or null).
     pub fn get_flag(&self) -> TranspositionTableEntryFlag {
-        return TranspositionTableEntryFlag::from_u8((self.data >> 25) as u8 & 0x3);
+        TranspositionTableEntryFlag::from_u8((self.data >> 25) as u8 & 0x3)
     }
 
     /// Returns whether the entry is valid.
     pub fn is_valid(&self) -> bool {
-        return self.key != 0;
+        self.key != 0
     }
 
     /// Returns the evaluation of the position.
     pub fn get_value(&self) -> i32 {
-        return ((self.data as i32 & 0x1FFFFFF) - 50_000) as i32;
+        ((self.data as i32 & 0x1FFFFFF) - 50_000) as i32
     }
 
     /// Returns the move that produced the score.
     pub fn get_move(&self) -> chess::_move::BitPackedMove {
-        return chess::_move::BitPackedMove {
+        chess::_move::BitPackedMove {
             move_bits: (self.data >> 35) as u32,
-        };
+        }
     }
 }
 
-/*
-   The TranspositionTableEntryFlag enum is used to indicate the type of score that is stored in a transposition table entry.
-   - EXACT: The score is an exact score.
-   - BETA: The score is a lower bound.
-   - ALPHA: The score is an upper bound.
-   - NULL: The score is a null score, this indicates an invalid entry.
-*/
 #[derive(PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum TranspositionTableEntryFlag {

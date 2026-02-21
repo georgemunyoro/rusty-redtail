@@ -328,9 +328,10 @@ fn main() {
 
         let mut search_options = SearchOptions::new();
         search_options.depth = Some(depth);
-        let mut tt = TranspositionTable::new(32);
+        let tt = TranspositionTable::new(32);
 
-        evaluator.get_best_move(&mut position, search_options, &mut tt, &stop_flag, None);
+        tt.increment_age();
+        evaluator.get_best_move(&mut position, search_options, &tt, &stop_flag, None);
 
         let cutoffs = &evaluator.result.cutoffs;
         global_cutoffs.total += cutoffs.total;

@@ -1,5 +1,7 @@
 pub mod constants;
 
+use std::sync::Arc;
+
 use crate::{
     chess::{
         self, castling_rights::CastlingRights, color::Color, piece::Piece, square::Square,
@@ -16,6 +18,7 @@ use crate::{
 };
 
 /// A chess position
+#[derive(Clone)]
 pub struct Position {
     pub bitboards: [u64; 12],
     pub mailbox: [Piece; 64], // Piece-centric board for O(1) lookups
@@ -37,8 +40,8 @@ pub struct Position {
     pub magic_bishop_masks: [u64; 64],
     pub magic_rook_masks: [u64; 64],
 
-    pub magic_bishop_attacks: Vec<Vec<u64>>,
-    pub magic_rook_attacks: Vec<Vec<u64>>,
+    pub magic_bishop_attacks: Arc<Vec<Vec<u64>>>,
+    pub magic_rook_attacks: Arc<Vec<Vec<u64>>>,
 
     pub position_stack: Vec<HistoryEntry>,
 
@@ -64,6 +67,7 @@ pub struct Position {
     pub opponent_attack_map: u64,
 }
 
+#[derive(Clone)]
 pub struct HistoryEntry {
     pub bitboards: [u64; 12],
     pub mailbox: [Piece; 64],
@@ -138,8 +142,8 @@ impl Board for Position {
             magic_bishop_masks: [0; 64],
             magic_rook_masks: [0; 64],
 
-            magic_bishop_attacks: vec![vec![0; 512]; 64],
-            magic_rook_attacks: vec![vec![0; 4096]; 64],
+            magic_bishop_attacks: Arc::new(vec![vec![0; 512]; 64]),
+            magic_rook_attacks: Arc::new(vec![vec![0; 4096]; 64]),
 
             enpassant: None,
             castling: CastlingRights::new(),
@@ -1400,7 +1404,7 @@ impl Position {
                         - constants::BISHOP_RELEVANT_BITS[usize::from(u8::from(square))]))
                         as usize;
 
-                    self.magic_bishop_attacks[usize::from(u8::from(square))][magic_index] =
+                    Arc::get_mut(&mut self.magic_bishop_attacks).unwrap()[usize::from(u8::from(square))][magic_index] =
                         self.generate_bishop_attacks_on_the_fly(square, occupancy);
                 } else {
                     let occupancy = self.set_occupancy(
@@ -1414,7 +1418,7 @@ impl Position {
                         - constants::ROOK_RELEVANT_BITS[usize::from(u8::from(square))]))
                         as usize;
 
-                    self.magic_rook_attacks[usize::from(u8::from(square))][magic_index] =
+                    Arc::get_mut(&mut self.magic_rook_attacks).unwrap()[usize::from(u8::from(square))][magic_index] =
                         self.generate_rook_attacks_on_the_fly(square, occupancy);
                 }
             }

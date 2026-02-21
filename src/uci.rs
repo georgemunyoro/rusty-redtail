@@ -20,9 +20,9 @@ use redtail::{
 pub struct UCI {
     position: Position,
     transposition_table: tt::TranspositionTable,
-    evaluator: Evaluator,
     stop_flag: Arc<AtomicBool>,
     ponder_flag: Arc<AtomicBool>,
+    num_threads: usize,
 }
 
 impl UCI {
@@ -30,9 +30,9 @@ impl UCI {
         let mut uci = UCI {
             position: Position::new(None),
             transposition_table: tt::TranspositionTable::new(2048),
-            evaluator: Evaluator::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
             ponder_flag: Arc::new(AtomicBool::new(false)),
+            num_threads: 1,
         };
         uci.position
             .set_fen(String::from(chess::constants::STARTING_FEN));
@@ -85,6 +85,7 @@ impl UCI {
                     println!("id name redtail_vx");
                     println!("id author George T.G. Munyoro");
                     println!("option name Hash type spin default 1 min 1 max 1");
+                    println!("option name Threads type spin default 1 min 1 max 256");
                     println!("option name Ponder type check default true");
                     println!("uciok");
                     io::stdout().flush().unwrap();
@@ -115,7 +116,18 @@ impl UCI {
 
                 "draw" => self.position.draw(),
 
-                "setoption" => {}
+                "setoption" => {
+                    if tokens.len() >= 5 && tokens[1] == "name" && tokens[3] == "value" {
+                        match tokens[2] {
+                            "Threads" => {
+                                if let Ok(n) = tokens[4].parse::<usize>() {
+                                    self.num_threads = n.max(1);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
 
                 _ => {
                     println!("Unknown command: {}", buffer.trim());
@@ -186,12 +198,13 @@ impl UCI {
         };
 
         // Run the search - stdin reader thread will set stop_flag/ponder_flag
-        self.evaluator.get_best_move(
-            &mut self.position,
+        search_parallel(
+            &self.position,
             options,
-            &mut self.transposition_table,
+            &self.transposition_table,
             &stop_flag,
             ponder_flag,
+            self.num_threads,
         );
 
         // Process any commands that arrived during search
