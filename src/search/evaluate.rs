@@ -97,6 +97,10 @@ pub struct Evaluator {
     optimum_time: u32,
     /// Hard time limit: abort the search immediately if elapsed approaches this
     maximum_time: u32,
+    /// Shared flag for pondering: true while pondering, set to false on ponderhit
+    ponder_flag: Option<Arc<AtomicBool>>,
+    /// Side to move at search start, cached for ponderhit time recalc
+    search_turn: Color,
 }
 
 impl Evaluator {
@@ -122,6 +126,8 @@ impl Evaluator {
             silent: false,
             optimum_time: 0,
             maximum_time: 0,
+            ponder_flag: None,
+            search_turn: Color::White,
         }
     }
 
@@ -139,24 +145,24 @@ impl Evaluator {
 
     /// Computes optimum (soft) and maximum (hard) time limits for a move,
     /// using a Stockfish-inspired algorithm.
-    fn set_move_time(&mut self, position: &mut Position) {
+    fn set_move_time(&mut self, turn: Color) {
         if self.options.movetime.is_some() {
             self.optimum_time = self.options.movetime.unwrap();
             self.maximum_time = self.options.movetime.unwrap();
             return;
         }
-        if self.options.infinite {
+        if self.options.infinite || self.options.ponder {
             self.optimum_time = u32::MAX;
             self.maximum_time = u32::MAX;
             return;
         }
 
-        let time_left = if position.turn == Color::White {
+        let time_left = if turn == Color::White {
             self.options.wtime.unwrap_or(0)
         } else {
             self.options.btime.unwrap_or(0)
         };
-        let increment = if position.turn == Color::White {
+        let increment = if turn == Color::White {
             self.options.winc.unwrap_or(0)
         } else {
             self.options.binc.unwrap_or(0)
@@ -206,8 +212,10 @@ impl Evaluator {
         options: SearchOptions,
         tt: &mut TranspositionTable,
         stop_flag: &Arc<AtomicBool>,
-    ) -> Option<chess::_move::BitPackedMove> {
+        ponder_flag: Option<Arc<AtomicBool>>,
+    ) -> (Option<chess::_move::BitPackedMove>, Option<chess::_move::BitPackedMove>) {
         self.stop_flag = Some(Arc::clone(stop_flag));
+        self.ponder_flag = ponder_flag;
         self.result = PositionEvaluation {
             score: 0,
             best_move: None,
@@ -223,7 +231,8 @@ impl Evaluator {
         };
 
         self.options = options;
-        self.set_move_time(position);
+        self.search_turn = position.turn;
+        self.set_move_time(position.turn);
 
         self.running = true;
         self.started_at = Evaluator::_get_time_ms();
@@ -303,12 +312,33 @@ impl Evaluator {
             fallback_move
         };
 
+        // Check if the 2nd PV move is a legal ponder move
+        let ponder_move = if pv_completed_so_far.len() >= 2 {
+            let candidate = pv_completed_so_far[1];
+            if position.make_move(final_move, false) {
+                let legal = position.make_move(candidate, false);
+                if legal {
+                    position.unmake_move();
+                }
+                position.unmake_move();
+                if legal { Some(candidate) } else { None }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         if !self.silent {
-            println!("bestmove {}", final_move);
+            if let Some(pm) = ponder_move {
+                println!("bestmove {} ponder {}", final_move, pm);
+            } else {
+                println!("bestmove {}", final_move);
+            }
             use std::io::Write;
             std::io::stdout().flush().unwrap();
         }
-        Some(final_move)
+        (Some(final_move), ponder_move)
     }
 
     pub fn negamax(
@@ -617,9 +647,20 @@ impl Evaluator {
         }
     }
 
-    fn check_time(&self) -> bool {
+    fn check_time(&mut self) -> bool {
         if self.is_stopped() {
             return false;
+        }
+
+        // Detect ponderhit transition: ponder_flag goes from true to false
+        if let Some(ref flag) = self.ponder_flag {
+            if !flag.load(Ordering::SeqCst) {
+                // ponderhit received: switch from ponder to timed search
+                self.options.ponder = false;
+                self.started_at = Evaluator::_get_time_ms();
+                self.set_move_time(self.search_turn);
+                self.ponder_flag = None;
+            }
         }
 
         if self.maximum_time == u32::MAX {
@@ -890,7 +931,7 @@ mod tests {
         let mut options = SearchOptions::new();
         options.movetime = Some(1); // 1ms - very short time
 
-        let best_move = evaluator.get_best_move(&mut position, options, &mut tt, &stop_flag);
+        let (best_move, _ponder_move) = evaluator.get_best_move(&mut position, options, &mut tt, &stop_flag, None);
 
         assert!(best_move.is_some());
         let m = best_move.unwrap();

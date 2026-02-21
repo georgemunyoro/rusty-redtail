@@ -330,7 +330,7 @@ fn main() {
         search_options.depth = Some(depth);
         let mut tt = TranspositionTable::new(32);
 
-        evaluator.get_best_move(&mut position, search_options, &mut tt, &stop_flag);
+        evaluator.get_best_move(&mut position, search_options, &mut tt, &stop_flag, None);
 
         let cutoffs = &evaluator.result.cutoffs;
         global_cutoffs.total += cutoffs.total;

@@ -22,6 +22,7 @@ pub struct UCI {
     transposition_table: tt::TranspositionTable,
     evaluator: Evaluator,
     stop_flag: Arc<AtomicBool>,
+    ponder_flag: Arc<AtomicBool>,
 }
 
 impl UCI {
@@ -31,6 +32,7 @@ impl UCI {
             transposition_table: tt::TranspositionTable::new(2048),
             evaluator: Evaluator::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
+            ponder_flag: Arc::new(AtomicBool::new(false)),
         };
         uci.position
             .set_fen(String::from(chess::constants::STARTING_FEN));
@@ -41,15 +43,17 @@ impl UCI {
         // Create a channel to receive commands from stdin reader thread
         let (tx, rx) = mpsc::channel::<String>();
 
-        // Spawn a thread to read stdin that also handles stop directly
+        // Spawn a thread to read stdin that handles stop/ponderhit directly
         let stop_flag_for_reader = Arc::clone(&self.stop_flag);
+        let ponder_flag_for_reader = Arc::clone(&self.ponder_flag);
         thread::spawn(move || {
             let stdin = io::stdin();
             for line in stdin.lock().lines() {
                 if let Ok(line) = line {
-                    // Handle stop immediately by setting the flag
-                    if line.trim() == "stop" {
-                        stop_flag_for_reader.store(true, Ordering::SeqCst);
+                    match line.trim() {
+                        "stop" => stop_flag_for_reader.store(true, Ordering::SeqCst),
+                        "ponderhit" => ponder_flag_for_reader.store(false, Ordering::SeqCst),
+                        _ => {}
                     }
                     if tx.send(line).is_err() {
                         break;
@@ -63,6 +67,8 @@ impl UCI {
                 Ok(line) => line,
                 Err(_) => break,
             };
+
+            println!("UCI: {}", buffer.trim());
 
             let tokens = Iterator::collect::<Vec<&str>>(buffer.trim().split_whitespace());
 
@@ -79,6 +85,7 @@ impl UCI {
                     println!("id name redtail_vx");
                     println!("id author George T.G. Munyoro");
                     println!("option name Hash type spin default 1 min 1 max 1");
+                    println!("option name Ponder type check default true");
                     println!("uciok");
                     io::stdout().flush().unwrap();
                 }
@@ -98,7 +105,7 @@ impl UCI {
 
                 "go" => self.go(tokens, &rx),
 
-                "stop" => {} // Already handled in reader thread
+                "stop" | "ponderhit" => {} // Already handled in reader thread
 
                 "quit" => break,
 
@@ -169,18 +176,29 @@ impl UCI {
         self.stop_flag.store(false, Ordering::SeqCst);
         let stop_flag = Arc::clone(&self.stop_flag);
 
-        // Run the search - stdin reader thread will set stop_flag if "stop" is received
+        // Set ponder_flag: true if this is "go ponder", so the search runs
+        // without time limits until ponderhit or stop
+        let ponder_flag = if options.ponder {
+            self.ponder_flag.store(true, Ordering::SeqCst);
+            Some(Arc::clone(&self.ponder_flag))
+        } else {
+            None
+        };
+
+        // Run the search - stdin reader thread will set stop_flag/ponder_flag
         self.evaluator.get_best_move(
             &mut self.position,
             options,
             &mut self.transposition_table,
             &stop_flag,
+            ponder_flag,
         );
 
         // Process any commands that arrived during search
         while let Ok(cmd) = rx.try_recv() {
             match cmd.trim() {
                 "quit" => std::process::exit(0),
+                "stop" | "ponderhit" => {}
                 _ => {}
             }
         }
