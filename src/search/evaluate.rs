@@ -93,6 +93,10 @@ pub struct Evaluator {
     stop_flag: Option<Arc<AtomicBool>>,
     pv_table: PVTable,
     silent: bool,
+    /// Soft time limit: don't start a new iteration if elapsed exceeds this
+    optimum_time: u32,
+    /// Hard time limit: abort the search immediately if elapsed approaches this
+    maximum_time: u32,
 }
 
 impl Evaluator {
@@ -116,6 +120,8 @@ impl Evaluator {
             stop_flag: None,
             pv_table: PVTable::new(),
             silent: false,
+            optimum_time: 0,
+            maximum_time: 0,
         }
     }
 
@@ -131,45 +137,66 @@ impl Evaluator {
         }
     }
 
-    /// Determines the time to spend on a move based on the time left for the side to move
-    /// as well as the increment.
+    /// Computes optimum (soft) and maximum (hard) time limits for a move,
+    /// using a Stockfish-inspired algorithm.
     fn set_move_time(&mut self, position: &mut Position) {
-        if self.options.movetime.is_some() || self.options.infinite {
+        if self.options.movetime.is_some() {
+            self.optimum_time = self.options.movetime.unwrap();
+            self.maximum_time = self.options.movetime.unwrap();
             return;
         }
-        let time_left_for_side = if position.turn == Color::White {
-            match self.options.wtime {
-                Some(wtime) => wtime,
-                None => 0,
-            }
+        if self.options.infinite {
+            self.optimum_time = u32::MAX;
+            self.maximum_time = u32::MAX;
+            return;
+        }
+
+        let time_left = if position.turn == Color::White {
+            self.options.wtime.unwrap_or(0)
         } else {
-            match self.options.btime {
-                Some(btime) => btime,
-                None => 0,
-            }
+            self.options.btime.unwrap_or(0)
         };
         let increment = if position.turn == Color::White {
-            match self.options.winc {
-                Some(winc) => winc,
-                None => 0,
-            }
+            self.options.winc.unwrap_or(0)
         } else {
-            match self.options.binc {
-                Some(binc) => binc,
-                None => 0,
-            }
+            self.options.binc.unwrap_or(0)
         };
 
-        let time_for_move = time_left_for_side / 45 + (increment / 2);
+        let move_overhead: u32 = 30;
 
-        if time_for_move >= time_left_for_side {
-            self.options.movetime = Some(time_left_for_side - 500);
+        if let Some(movestogo) = self.options.movestogo {
+            // Moves-to-go time control: divide remaining time across moves
+            let mtg = movestogo.max(1);
+            let available = time_left.saturating_sub(move_overhead * mtg) + increment * mtg;
+            let optimum = available / mtg;
+            // Allow spending up to 2x-4x optimum on critical moves
+            let max_scale = (2.0 + 0.1 * mtg as f64).min(4.0);
+            let maximum = (optimum as f64 * max_scale) as u32;
+
+            // Never exceed 85% of remaining clock
+            let hard_cap = time_left * 17 / 20;
+            self.optimum_time = optimum.min(hard_cap).max(1);
+            self.maximum_time = maximum.min(hard_cap).max(1);
         } else {
-            if time_for_move <= 0 {
-                self.options.movetime = Some(200);
-                return;
-            }
-            self.options.movetime = Some(time_for_move);
+            // Sudden death / increment: assume ~40 moves remaining
+            let mtg: u32 = 40;
+            // Effective time pool: current time + future increments - overhead
+            let available = time_left
+                .saturating_sub(move_overhead * mtg)
+                + increment * (mtg - 1);
+            let available = available.max(1);
+
+            // Base optimum: fraction of available time
+            let opt_fraction = 0.04_f64;
+            let optimum = (available as f64 * opt_fraction) as u32;
+
+            // Maximum: allow up to 5x optimum for unstable positions
+            let maximum = optimum * 5;
+
+            // Never exceed 80% of remaining clock
+            let hard_cap = time_left * 4 / 5;
+            self.optimum_time = optimum.max(1).min(hard_cap.max(1));
+            self.maximum_time = maximum.max(1).min(hard_cap.max(1));
         }
     }
 
@@ -253,6 +280,12 @@ impl Evaluator {
 
             self.print_info(start_time, score, &pv_completed_so_far, tt);
             current_depth += 1;
+
+            // Soft time check: don't start the next iteration if we've used
+            // more than half the optimum time — it's unlikely to complete.
+            if self.elapsed_ms() > self.optimum_time / 2 {
+                break;
+            }
         }
 
         let best_move = if !pv_completed_so_far.is_empty() {
@@ -589,22 +622,16 @@ impl Evaluator {
             return false;
         }
 
-        if self.options.infinite {
+        if self.maximum_time == u32::MAX {
             return true;
         }
 
-        let elapsed: u128 = Evaluator::_get_time_ms() - self.started_at;
+        let elapsed = (Evaluator::_get_time_ms() - self.started_at) as u32;
+        elapsed < self.maximum_time
+    }
 
-        match self.options.movetime {
-            Some(movetime) => {
-                if (elapsed + 200) >= movetime as u128 {
-                    return false;
-                }
-            }
-            None => {}
-        }
-
-        return true;
+    fn elapsed_ms(&self) -> u32 {
+        (Evaluator::_get_time_ms() - self.started_at) as u32
     }
 
     fn _has_non_pawn_material(&self, position: &mut Position) -> bool {
