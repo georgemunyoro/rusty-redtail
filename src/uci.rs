@@ -208,7 +208,7 @@ impl UCI {
         let depth = if tokens.len() > 1 {
             tokens[1].parse::<u8>().unwrap_or(13)
         } else {
-            13
+            9
         };
 
         let threads = if tokens.len() > 2 {
