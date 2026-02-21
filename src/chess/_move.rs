@@ -173,12 +173,12 @@ impl std::fmt::Display for BitPackedMove {
 
 #[derive(Clone, Copy, Debug)]
 pub struct PrioritizedMove {
-    pub priority: u32,
+    pub priority: i32,
     pub m: BitPackedMove,
 }
 
 impl PrioritizedMove {
-    pub fn new(m: BitPackedMove, priority: u32) -> Self {
+    pub fn new(m: BitPackedMove, priority: i32) -> Self {
         Self { priority, m }
     }
 

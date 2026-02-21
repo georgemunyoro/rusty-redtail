@@ -1448,6 +1448,33 @@ impl Position {
             | self.get_rook_magic_attacks(square, occupancy);
     }
 
+    /// Returns a bitboard of all pieces attacking the given square with the given occupancy.
+    /// Used for Static Exchange Evaluation (SEE).
+    pub fn get_all_attackers_to(&self, square: Square, occupancy: u64) -> u64 {
+        let sq = square as usize;
+        let pawns_w = self.pawn_attacks[Color::Black as usize][sq]
+            & self.bitboards[Piece::WhitePawn as usize];
+        let pawns_b = self.pawn_attacks[Color::White as usize][sq]
+            & self.bitboards[Piece::BlackPawn as usize];
+        let knights = self.knight_attacks[sq]
+            & (self.bitboards[Piece::WhiteKnight as usize]
+                | self.bitboards[Piece::BlackKnight as usize]);
+        let diag = self.get_bishop_magic_attacks(square, occupancy)
+            & (self.bitboards[Piece::WhiteBishop as usize]
+                | self.bitboards[Piece::BlackBishop as usize]
+                | self.bitboards[Piece::WhiteQueen as usize]
+                | self.bitboards[Piece::BlackQueen as usize]);
+        let orth = self.get_rook_magic_attacks(square, occupancy)
+            & (self.bitboards[Piece::WhiteRook as usize]
+                | self.bitboards[Piece::BlackRook as usize]
+                | self.bitboards[Piece::WhiteQueen as usize]
+                | self.bitboards[Piece::BlackQueen as usize]);
+        let kings = self.king_attacks[sq]
+            & (self.bitboards[Piece::WhiteKing as usize]
+                | self.bitboards[Piece::BlackKing as usize]);
+        pawns_w | pawns_b | knights | diag | orth | kings
+    }
+
     pub fn get_both_occupancy(&self) -> u64 {
         let mut white_occupancy = 0u64;
         let mut black_occupancy = 0u64;

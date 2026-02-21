@@ -119,10 +119,11 @@ impl TranspositionTable {
         slot.age.store(current_age, Ordering::Relaxed);
     }
 
-    /// Returns the entry if it exists, otherwise returns None.
+    /// Returns the entry if the hash matches (any bound type), otherwise returns None.
     pub fn get(&self, key: u64) -> Option<TranspositionTableEntry> {
         let entry = self.load_entry(key as usize & (self.hash_size - 1));
-        if entry.key == (key ^ entry.data) && entry.get_flag() == TranspositionTableEntryFlag::EXACT
+        if entry.key == (key ^ entry.data)
+            && entry.get_flag() != TranspositionTableEntryFlag::NULL
         {
             return Some(entry);
         }
@@ -215,7 +216,7 @@ impl TranspositionTableEntry {
 impl TranspositionTableEntry {
     /// Returns the depth of the search that produced the score.
     pub fn get_depth(&self) -> u8 {
-        (self.data >> 27) as u8 & 0xF
+        (self.data >> 27) as u8 & 0xFF
     }
 
     /// Returns the type of score (exact, alpha, beta, or null).

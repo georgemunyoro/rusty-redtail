@@ -68,8 +68,6 @@ impl UCI {
                 Err(_) => break,
             };
 
-            println!("UCI: {}", buffer.trim());
-
             let tokens = Iterator::collect::<Vec<&str>>(buffer.trim().split_whitespace());
 
             if tokens.is_empty() {
